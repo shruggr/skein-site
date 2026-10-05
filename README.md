@@ -46,7 +46,8 @@ handles, #103; profiles and search, #104; the wallet's grouped request, #97).
   answers it at every skein's origin: `{origin, domain}`) and reads its
   BRC-169 manifest there (`metanet.trust.publicKey`, the certifier key;
   `metanet.handles.resolve`). **Register a handle**: your wallet signs
-  `register <name>` (protocol `[2, "skein register"]`, key id the name,
+  `register <name>@<domain>` (the domain lower case; protocol
+  `[2, "skein register"]`, key id the name,
   counterparty anyone); `POST <router>/account/register` creates your
   mailbox instance, `<name>@<domain>`, and answers with the BRC-52 handle
   certificate issued for your key (encrypted fields and a keyring for you);
@@ -63,10 +64,10 @@ handles, #103; profiles and search, #104; the wallet's grouped request, #97).
   `encodeProfile`: DAG-CBOR `{domain, name?, avatar?}`, the avatar as its 36
   bytes), your wallet signs it (`createSignature`, protocol
   `[1, "metanet handles profile"]`, key id `1`, counterparty anyone), and
-  the page writes `{profile, signature}` to your mailbox instance as its
-  owner: `objects` with the record, then `head` `profile` → it. The host
-  serves it in the handle's resolve answer (`profile`, with `displayName`
-  and `avatarURL` derived for other clients); the page waits until it does.
+  the page posts `{handle, record: <base64 of the bytes>, signature: <hex
+  DER>}` to `POST <router>/account/profile`; the host's onboarding app keeps
+  it and serves it in the handle's resolve answer (`profile`, with
+  `displayName` and `avatarURL` derived for other clients).
 - **Handles shown** (BRC-169 §2.4): the avatar, or an identicon drawn from
   the identity key, then `handle@domain`. A profile whose signature the page
   verifies against the handle's identity key (and whose domain is the

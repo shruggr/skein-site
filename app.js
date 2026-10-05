@@ -21,7 +21,7 @@
 // (createWebWallet, webwallet.js) instead of connecting one; &services=<url>
 // points that wallet at a 1sat services endpoint.
 
-import { appRecordIn, Certificate, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeBlock, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, senderText, syncMetanetInbox, Utils, WalletClient } from "./lib.js";
+import { appRecordIn, Certificate, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, senderText, syncMetanetInbox, Utils, WalletClient } from "./lib.js";
 
 const q = new URLSearchParams(location.search);
 /** The skein that served this page: its base URL (the page is its `/`). */
@@ -33,19 +33,19 @@ const KEY_ID = "1";
 const GIT_RAW = 0x78;
 /** BRC-169 §4.5: the handle-certificate type. */
 const HANDLE_TYPE = Utils.toBase64(Hash.sha256(Utils.toArray("metanet-handles handle certificate v1", "utf8")));
-/** A registration's signature (the host's POST /account/register): protocol, key ID the name, over `register <name>`. */
+/** A registration's signature (the host's POST /account/register): protocol, key ID the name, over `register <name>@<domain>` (the host's domain, lower case). */
 const REGISTER = [2, "skein register"];
 /**
  * A handle's profile (#104): the OpNS profile record (@1sat/utils
  * encodeProfile: DAG-CBOR {domain, name?, avatar?}, the avatar an image
  * inscription's 36-byte outpoint), signed by the holder's wallet under this
  * protocol, key ID "1", counterparty anyone, over those bytes — anyone with
- * the identity key verifies it. Kept in your mailbox instance under the head
- * `profile`: a record {profile: <the bytes>, signature}.
+ * the identity key verifies it. Posted to the host's POST /account/profile
+ * {handle, record: <base64 of the bytes>, signature: <hex DER>}; the host's
+ * onboarding app keeps it (skein docs/MESSAGES.md "Mailbox instances").
  */
 const PROFILE = [1, "metanet handles profile"];
 const PROFILE_KEY_ID = "1";
-const PROFILE_HEAD = "profile";
 
 const state = { wallet: undefined, me: "", locators: [], catalog: [], boxes: new Map(), host: undefined, handles: undefined };
 window.site = state;
@@ -408,9 +408,8 @@ async function resolveHandle(row) {
 /**
  * Set your profile for a handle (#104): the record built (@1sat/utils
  * encodeProfile: the handle's domain, the name and the avatar's outpoint
- * when given), signed by your wallet, and written to your mailbox instance
- * as its owner — `objects` with the record {profile, signature}, then `head`
- * `profile` → it. Then the handle is resolved until the host serves it.
+ * when given), signed by your wallet, and posted to the host's
+ * POST /account/profile {handle, record (base64), signature (hex DER)}.
  */
 async function setProfile(row, name, avatar) {
   let av;
@@ -420,18 +419,13 @@ async function setProfile(row, name, avatar) {
   }
   const bytes = encodeProfile({ domain: row.domain, ...(name ? { name } : {}), ...(av ? { avatar: av } : {}) });
   const { signature } = await state.wallet.createSignature({ protocolID: PROFILE, keyID: PROFILE_KEY_ID, counterparty: "anyone", data: bytes });
-  const rec = encodeBlock({ profile: Uint8Array.from(bytes), signature: Uint8Array.from(signature) });
-  const identity = await identityAt(row.messagebox);
-  const box = boxFor(row.messagebox);
-  await box.send(identity, "objects", { records: [{ cid: rec.cid, bytes: rec.bytes }] });
-  await box.send(identity, "head", { name: PROFILE_HEAD, tree: rec.cid });
-  const want = Utils.toBase64(bytes);
-  for (let wait = 250; wait < 8000; wait *= 2) {
-    const a = await resolveHandle(row);
-    if (a.profile?.record === want) return a;
-    await sleep(wait);
-  }
-  throw new Error("sent to your mailbox; the host does not serve it yet (look again in a moment)");
+  const host = await hostInfo();
+  if (!host || row.domain !== host.domain) throw new Error(`${row.handle}@${row.domain} is not a handle of this page's host`);
+  const r = await fetch(`${host.origin}/account/profile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle: row.handle, record: Utils.toBase64(bytes), signature: toHex(signature) }) });
+  let v = {};
+  try { v = await r.json(); } catch { /* the status says it */ }
+  if (r.status !== 200) throw new Error(v.error ?? `HTTP ${r.status}`);
+  return v;
 }
 
 /** The Profile form of one of your handles: the current profile, and Save (setProfile). */
@@ -444,11 +438,11 @@ function profileForm(x) {
     ? `Now: ${a.name ? `name ${a.name}` : "no name"}, ${a.avatar ? `avatar ${a.avatar}` : "no avatar"} (signed by your key, verified here).`
     : "No profile yet.";
   return h("details", { class: "profile" }, h("summary", { class: "small" }, "Profile"),
-    h("p", { class: "mut small" }, `${now} Your wallet signs the name and the avatar (an image inscription, by outpoint); your mailbox keeps them, and ${x.domain} serves them with ${x.handle}@${x.domain} when it is resolved or found.`),
+    h("p", { class: "mut small" }, `${now} Your wallet signs the name and the avatar (an image inscription, by outpoint); ${x.domain} keeps them and serves them with ${x.handle}@${x.domain} when it is resolved or found.`),
     h("form", { class: "row profile-form", onsubmit: async (e) => {
       e.preventDefault();
       try {
-        status(st, "signing and sending to your mailbox");
+        status(st, `signing and sending to ${x.domain}`);
         await setProfile(x, name.value.trim(), avatar.value.trim());
         status(st, "saved: the host serves it", "ok");
         state.handles = undefined;
@@ -497,14 +491,14 @@ function searchSection(m, host) {
 
 /**
  * Register `name` on this page's host for your key: the host's
- * POST /account/register with your signature over `register <name>`; it
+ * POST /account/register with your signature over `register <name>@<domain>`; it
  * creates your mailbox instance and answers with the handle certificate,
  * which your wallet keeps (`acquireCertificate`, direct) unless it holds it.
  */
 async function registerHandle(name) {
   const host = await hostInfo();
   if (!host) throw new Error("this page's skein is not on a skein host");
-  const { signature } = await state.wallet.createSignature({ protocolID: REGISTER, keyID: name, counterparty: "anyone", data: Utils.toArray(`register ${name}`, "utf8") });
+  const { signature } = await state.wallet.createSignature({ protocolID: REGISTER, keyID: name, counterparty: "anyone", data: Utils.toArray(`register ${name}@${host.domain.toLowerCase()}`, "utf8") });
   const r = await fetch(`${host.origin}/account/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: name, identityKey: state.me, signature: toHex(signature) }) });
   let v = {};
   try { v = await r.json(); } catch { /* the status says it */ }
