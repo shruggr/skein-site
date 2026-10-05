@@ -7,9 +7,9 @@ the same everywhere; what makes the page yours is the wallet in your
 browser. A skein from the default image serves nothing until something is
 installed: the host's own skein carries this app, installed by the host's
 owner, and you manage your skeins from there, the page talking to each one
-directly. Version **0.6.0** (shruggr/skein#92; the Inbox, #99; handles,
+directly. Version **0.6.1** (shruggr/skein#92; the Inbox, #99; handles,
 #103; profiles and search, #104; the wallet's grouped request, #97; an app,
-#125).
+#125; the signed claim, shruggr/skein#127).
 
 ## What it does
 
@@ -26,8 +26,10 @@ directly. Version **0.6.0** (shruggr/skein#92; the Inbox, #99; handles,
   Add one by URL (the identity is taken from the skein's signed answer);
   remove one (the wallet relinquishes the output).
 - **Create a skein** (on a host skein, where the onboarding app is
-  installed): `POST /onboard/call {fn: "onboard.create", args: {handle}}` on
-  your session; the answer `{handle, identity, url}`; the page writes a
+  installed): your wallet signs the new skein's claim (skein's `signClaim`:
+  a message naming no recipient, whose sender becomes the owner, #127), and
+  `POST /onboard/call {fn: "onboard.create", args: {handle, claim}}` (as
+  DAG-JSON) on your session; the answer `{handle, identity, url}`; the page writes a
   locator and opens the new skein's view here (a new skein serves no page:
   it is managed from this one).
 - **A skein's page.** Its apps (the heads `<app>/app`), read from its
@@ -153,7 +155,7 @@ The manifest (description left out):
 {
   "kind": "app",
   "name": "site",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "programs": { "site": "bin/site.wasm" },
   "provides": [{ "interface": "site/1", "functions": { "get": { "writes": false,
     "args": { "method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map" },
@@ -177,7 +179,7 @@ From the management page of a skein you own (Install, by URL and commit
 id), or with skein's reference client as the owner:
 
 ```
-skein plan install https://github.com/shruggr/skein-site#<the v0.6.0 commit> --origin <the skein's URL> --out plan
+skein plan install https://github.com/shruggr/skein-site#<the v0.6.1 commit> --origin <the skein's URL> --out plan
 skein send <the skein's URL> plan
 ```
 
@@ -245,6 +247,6 @@ repository pinned in skein's `src/testapps.ts`.
 
 | | |
 |---|---|
-| this app | 0.6.0 (tag `v0.6.0`) |
+| this app | 0.6.1 (tag `v0.6.1`) |
 | skein-sdk | v0.6.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`, `files`; no wallet) |
 | skein | the bundles from `lib/SKEIN_REV`; the app installs into a skein with the #77 manifest shape |

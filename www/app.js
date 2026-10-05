@@ -21,7 +21,7 @@
 // (createWebWallet, webwallet.js) instead of connecting one; &services=<url>
 // points that wallet at a 1sat services endpoint.
 
-import { appRecordIn, Certificate, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, senderText, syncMetanetInbox, Utils, WalletClient } from "./lib.js";
+import { appRecordIn, Certificate, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, senderText, signClaim, syncMetanetInbox, Utils, WalletClient } from "./lib.js";
 
 const q = new URLSearchParams(location.search);
 /** The skein that served this page: its base URL (the page is its `/site/`, or its `/` by the owner's row). */
@@ -600,7 +600,9 @@ async function home(m) {
       if (!handle) return;
       try {
         status(made, `asking ${here} to create ${handle}`);
-        const r = await boxFor(here).af.fetch(`${here}/onboard/call`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fn: "onboard.create", args: { handle } }) });
+        // #127: the new skein's owner is the sender of its claim; your wallet signs it now (naming no recipient), the host forwards it.
+        const claim = await signClaim(state.wallet);
+        const r = await boxFor(here).af.fetch(`${here}/onboard/call`, { method: "POST", headers: { "content-type": "application/json" }, body: new TextDecoder().decode(dagJson.encode({ fn: "onboard.create", args: { handle, claim } })) });
         const text = await r.text();
         let v = {};
         try { v = JSON.parse(text); } catch { /* shown as text */ }
