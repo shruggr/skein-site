@@ -1,6 +1,6 @@
-// The management site (shruggr/skein#92). The same files on every skein
-// (the default image serves them at / and /site/); what makes the page yours
-// is the wallet in the browser. Everything it shows of a skein it reads from
+// The management site (shruggr/skein#92), an app since #125: installed in a
+// skein, it serves these files at /site/ (and at / when the owner adds that
+// row); what makes the page yours is the wallet in the browser. Everything it shows of a skein it reads from
 // that skein, on a BRC-104 session signed by your wallet; everything it
 // changes there is a message from you to that skein. The skein that served
 // the page is never in the path for another skein's data.
@@ -24,8 +24,8 @@
 import { appRecordIn, Certificate, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, senderText, syncMetanetInbox, Utils, WalletClient } from "./lib.js";
 
 const q = new URLSearchParams(location.search);
-/** The skein that served this page: its base URL (the page is its `/`). */
-const here = new URL(".", location.href).href.replace(/\/+$/, "");
+/** The skein that served this page: its base URL (the page is its `/site/`, or its `/` by the owner's row). */
+const here = new URL(".", location.href).href.replace(/\/+$/, "").replace(/\/site$/, "");
 /** Locator tokens: PushDrop outputs in this basket, fields [identity (33 bytes), url, handle]. */
 const BASKET = "skein-locators";
 const PROTOCOL = [1, "skein locator"];
@@ -610,7 +610,8 @@ async function home(m) {
         status(made, `created ${handle}: ${at}\nwriting its locator into your wallet`, "ok");
         await addLocator({ identity, url: at, handle });
         status(made, `created ${handle}: ${at}\nlocator written; opening it`, "ok");
-        location.href = `${at}/${location.search}#/s/${identity}`;
+        // A new skein serves no page (#125): it is managed from here, talking to it directly.
+        location.hash = `#/s/${identity}`;
       } catch (err) { status(made, errText(err), "bad"); }
     } }, name, h("button", { type: "submit", class: "go" }, "Create")), made);
 }
@@ -1018,7 +1019,7 @@ async function inboxPage(m) {
 // ---------------------------------------------------------------- start
 
 async function start() {
-  try { state.catalog = (await (await fetch("site/catalog.json")).json()).apps ?? []; } catch { state.catalog = []; }
+  try { state.catalog = (await (await fetch("catalog.json")).json()).apps ?? []; } catch { state.catalog = []; }
   $("connect").onclick = async () => { try { await useWallet(); route(); } catch (e) { $("who").textContent = errText(e); } };
   window.addEventListener("hashchange", () => route());
   try { await useWallet(); } catch (e) { $("who").textContent = `no wallet connected (${errText(e)})`; }

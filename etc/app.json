@@ -1,0 +1,45 @@
+{
+  "kind": "app",
+  "name": "site",
+  "version": "0.6.0",
+  "programs": {
+    "site": "bin/site.wasm"
+  },
+  "provides": [
+    {
+      "interface": "site/1",
+      "functions": {
+        "get": {
+          "writes": false,
+          "args": {
+            "method?": "string",
+            "route?": "string",
+            "path?": "string",
+            "query?": "string",
+            "headers?": "map",
+            "match?": "map"
+          },
+          "answer": {
+            "status": "int",
+            "type": "string",
+            "headers": "map",
+            "body": "bytes"
+          }
+        }
+      }
+    }
+  ],
+  "requires": [],
+  "dispatch": [
+    {
+      "transport": "http",
+      "address": "/",
+      "prefix": true,
+      "sender": "*",
+      "program": "site",
+      "fn": "get",
+      "root": "www"
+    }
+  ],
+  "description": "The management site of a skein (shruggr/skein#92, #125): the page under /site/, served from this app's own tree (www/) by its one route handler. The owner may also send a row putting it at the instance's root (README)."
+}

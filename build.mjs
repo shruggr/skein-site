@@ -1,4 +1,4 @@
-// Build lib.js and webwallet.js (with their shared chunks) from lib/*.ts.
+// Build www/lib.js and www/webwallet.js (with their shared chunks) from lib/*.ts.
 //
 //   npm ci
 //   SKEIN_DIR=../skein node build.mjs        a skein checkout at lib/SKEIN_REV
@@ -7,8 +7,8 @@
 // $SKEIN_DIR; every package they and lib/ import resolves from this
 // directory's node_modules (package-lock.json), so the output depends on
 // this tree, the skein commit and nothing else. node:crypto and Buffer
-// are skein's browser shims (web/shims). The output is committed: the site
-// is served as it is in the tree.
+// are skein's browser shims (web/shims). The output is committed: the app
+// serves www/ as it is in the tree.
 
 import { build } from "esbuild";
 import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
@@ -16,6 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SITE = dirname(fileURLToPath(import.meta.url));
+const WWW = join(SITE, "www");
 const SKEIN = resolve(process.env.SKEIN_DIR ?? join(SITE, "../skein"));
 const rev = readFileSync(join(SITE, "lib/SKEIN_REV"), "utf8").trim();
 if (!existsSync(join(SKEIN, "src/client/raw.ts"))) throw new Error(`${SKEIN}: not a skein checkout (set SKEIN_DIR; lib/SKEIN_REV names the commit: ${rev})`);
@@ -33,11 +34,11 @@ const resolveHere = {
   },
 };
 
-for (const f of readdirSync(SITE)) if (/^chunk-.*\.js$/.test(f)) rmSync(join(SITE, f)); // the last build's chunks
+for (const f of readdirSync(WWW)) if (/^chunk-.*\.js$/.test(f)) rmSync(join(WWW, f)); // the last build's chunks
 
 await build({
   entryPoints: { lib: join(SITE, "lib/entry.ts"), webwallet: join(SITE, "lib/webwallet.ts") },
-  outdir: SITE,
+  outdir: WWW,
   bundle: true,
   splitting: true,
   chunkNames: "chunk-[hash]",
@@ -56,4 +57,4 @@ await build({
   inject: [join(SKEIN, "web/shims/buffer.ts")],
   define: { "process.env.NODE_ENV": '"production"', global: "globalThis" },
 });
-console.log(`lib.js, webwallet.js (skein ${rev} at ${SKEIN})`);
+console.log(`www/lib.js, www/webwallet.js (skein ${rev} at ${SKEIN})`);

@@ -1,10 +1,15 @@
 # skein-site
 
-The management site of a [skein](https://github.com/shruggr/skein): the page
-every skein from the default image serves at `/` (its files at `/site/`).
-The files are the same on every skein; what makes the page yours is the
-wallet in your browser. Version **0.5.0** (shruggr/skein#92; the Inbox, #99;
-handles, #103; profiles and search, #104; the wallet's grouped request, #97).
+The management site of a [skein](https://github.com/shruggr/skein), as an
+app (shruggr/skein#125): installed in a skein, it serves the page at
+`/site/`, and at `/` when the owner adds that row (below). The files are
+the same everywhere; what makes the page yours is the wallet in your
+browser. A skein from the default image serves nothing until something is
+installed: the host's own skein carries this app, installed by the host's
+owner, and you manage your skeins from there, the page talking to each one
+directly. Version **0.6.0** (shruggr/skein#92; the Inbox, #99; handles,
+#103; profiles and search, #104; the wallet's grouped request, #97; an app,
+#125).
 
 ## What it does
 
@@ -23,7 +28,8 @@ handles, #103; profiles and search, #104; the wallet's grouped request, #97).
 - **Create a skein** (on a host skein, where the onboarding app is
   installed): `POST /onboard/call {fn: "onboard.create", args: {handle}}` on
   your session; the answer `{handle, identity, url}`; the page writes a
-  locator and opens the new skein.
+  locator and opens the new skein's view here (a new skein serves no page:
+  it is managed from this one).
 - **A skein's page.** Its apps (the heads `<app>/app`), read from its
   explorer (`/explore`, a read the owner may make). **Install**: the
   catalog (`catalog.json`: our apps as a repository URL and a commit id) or
@@ -96,9 +102,10 @@ handles, #103; profiles and search, #104; the wallet's grouped request, #97).
 
 A BRC-100 wallet that seeks grouped permission (wallet-toolbox's
 `WalletPermissionsManager`, `seekGroupedPermission`) reads
-`<origin>/manifest.json` of the page's origin — each skein's own, so the
-default image serves this file there (shruggr/skein#97) — and asks once,
-under `metanet`, for:
+`<origin>/manifest.json` of the page's origin (shruggr/skein#97). The app
+serves it at `/site/manifest.json`; at the origin's `/manifest.json` only
+with the owner's root row (below), and a host's router may answer that path
+itself. It asks once, under `metanet`, for:
 
 - `groupPermissions`, granted together on the first call: the protocols
   `[1, "identity key retrieval"]`, `[2, "server hmac"]` (self), `[1, "skein
@@ -123,30 +130,121 @@ internalizes the payment with the label `metanet payment` (`[1, "action
 label metanet payment"]`); a BRC-232 delivery brings its sender's labels
 and baskets. The wallet asks for those as they come.
 
+## The app
+
+```
+etc/app.json      the manifest (skein docs/APPS.md §2)
+bin/site.wasm     the one program: a route handler (Zig, WASI preview1; src/main.zig), built by `zig build bin`
+bin/site.json     its program record's description
+www/              the page, served as it is in the tree
+src/, build.zig, build.zig.zon, lib/, build.mjs, package.json   how bin/site.wasm and www/'s bundles are made
+```
+
+The program serves **the app's own tree**: on each request it reads the
+head `site/app` (the app record the install wrote), takes its `tree`, and
+answers with skein-sdk's `files.serve` (`lib/files.zig`: the file under the
+row's `root`, a directory's `index.html`, a 301 for a directory named
+without its `/`, the blob's CID as the ETag and 304 on `If-None-Match`, 404,
+405). A read: it puts nothing and moves no head.
+
+The manifest (description left out):
+
+```json
+{
+  "kind": "app",
+  "name": "site",
+  "version": "0.6.0",
+  "programs": { "site": "bin/site.wasm" },
+  "provides": [{ "interface": "site/1", "functions": { "get": { "writes": false,
+    "args": { "method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map" },
+    "answer": { "status": "int", "type": "string", "headers": "map", "body": "bytes" } } } }],
+  "requires": [],
+  "dispatch": [
+    { "transport": "http", "address": "/", "prefix": true, "sender": "*", "program": "site", "fn": "get", "root": "www" }
+  ]
+}
+```
+
+The row's address is relative to `/site/` (APPS.md §2: an app's http rows
+are under its name), so the install asks for `http /site/* from anyone →
+site.get (root www)`. The page's links are relative (`app.js`, `style.css`,
+`catalog.json`), so it works under `/site/` and at `/`; the skein it was
+served by is its URL less a trailing `/site`.
+
+## Install
+
+From the management page of a skein you own (Install, by URL and commit
+id), or with skein's reference client as the owner:
+
+```
+skein plan install https://github.com/shruggr/skein-site#<the v0.6.0 commit> --origin <the skein's URL> --out plan
+skein send <the skein's URL> plan
+```
+
+**The site at the root (optional).** An app's rows are under its name; the
+root is the owner's. To serve the page at `/` too, the owner sends one more
+row to the kernel's `dispatch` box, to the same program (the site's program
+record, `programs.site` of the head `site/app`'s record):
+
+```
+{transport: "http", address: "/", prefix: true, sender: "*", program: <programs.site>, fn: "get", root: "www"}
+```
+
+With skein's client: `skein plan dispatch add --http --prefix --fn get
+--settings '{"root":"www"}' / site.site --origin <url> --out root`, then
+`skein send <url> root`. A prefix row at `/` is the instance's catch-all:
+exact rows and longer prefixes (the messagebox, the explorer, every app's
+`/<name>/…`) match first; any other path is the site's (a 404 when the
+tree has no such file), and `/manifest.json` is the page's grouped request.
+The row is the owner's, not the app's (no `app` field): an upgrade of the
+site keeps it, and an uninstall leaves it (remove it with `skein plan
+dispatch remove …` and the same arguments).
+
 ## Files
 
 | file | what |
 |---|---|
-| `index.html`, `app.js`, `style.css` | the page: plain HTML and JavaScript, no framework |
-| `catalog.json` | the apps the page offers |
-| `manifest.json` | the wallet's grouped permission request (above), served at `/manifest.json` of the skein's origin |
-| `lib.js`, `chunk-*.js` | the libraries, one esbuild bundle (`lib/entry.ts`): skein's BRC-104 client (`src/client/raw.ts`), install plan and block encoder (`src/runtime/cid.ts`), `@1sat/connect`, `@bsv/sdk` (with its `Certificate`, `MasterCertificate` and `ProtoWallet`), `@bsv/message-box-client`, `@1sat/actions`' `syncMetanetInbox` (its module only), `@1sat/utils`' profile codec, `@1sat/templates`' outpoint bytes and `@1sat/types`' outpoint form (their modules only), `@ipld/dag-cbor`, `@ipld/dag-json` |
-| `webwallet.js` | `@1sat/wallet-browser`'s `createWebWallet`, loaded only in test mode |
+| `www/index.html`, `www/app.js`, `www/style.css` | the page: plain HTML and JavaScript, no framework |
+| `www/catalog.json` | the apps the page offers |
+| `www/manifest.json` | the wallet's grouped permission request (above) |
+| `www/lib.js`, `www/chunk-*.js` | the libraries, one esbuild bundle (`lib/entry.ts`): skein's BRC-104 client (`src/client/raw.ts`), install plan and block encoder (`src/runtime/cid.ts`), `@1sat/connect`, `@bsv/sdk` (with its `Certificate`, `MasterCertificate` and `ProtoWallet`), `@bsv/message-box-client`, `@1sat/actions`' `syncMetanetInbox` (its module only), `@1sat/utils`' profile codec, `@1sat/templates`' outpoint bytes and `@1sat/types`' outpoint form (their modules only), `@ipld/dag-cbor`, `@ipld/dag-json` |
+| `www/webwallet.js` | `@1sat/wallet-browser`'s `createWebWallet`, loaded only in test mode |
 | `lib/entry.ts`, `lib/webwallet.ts`, `build.mjs`, `lib/SKEIN_REV` | how the bundles are made, and the skein commit they are made from |
 
 Test mode: `?key=<private key hex>` runs a wallet in the tab over that key
 instead of connecting one, and `&services=<url>` points it at a 1sat
 services endpoint (skein's `kernel-zig/equiv/site.ts` drives the page this way).
 
-## Build
+## Build and test
+
+The page's bundles (Node; the output is committed, the app serves `www/`
+as it is in the tree):
 
 ```
 npm ci
-SKEIN_DIR=../skein node build.mjs     # a skein checkout at lib/SKEIN_REV, with its web/shims
+SKEIN_DIR=../skein node build.mjs     # a skein checkout at lib/SKEIN_REV, with its web/shims → www/lib.js, www/webwallet.js, www/chunk-*.js
 ```
 
 The chunks' names hash the modules' paths, so the same bytes come out only
-with the skein checkout at `../skein` as above. The bundles are committed:
-the site is served as the tree is. A skein's
-default image carries a copy of this tree under `images/default/www`, the
-same git tree as this repository's tag.
+with the skein checkout at `../skein` as above.
+
+The handler (Zig 0.16.0, `mise.toml`):
+
+```
+zig build          # zig-out/bin/site.wasm
+zig build bin      # the same, into bin/site.wasm (committed; the build is reproducible)
+zig build test     # the handler's checks (natively)
+```
+
+skein runs the app end to end: `kernel-zig/equiv/site.ts` (the page in
+headless Chrome, installed in a host skein), `files.ts` (the handler's
+answers) and `install.ts` (the install and uninstall), at a commit of this
+repository pinned in skein's `src/testapps.ts`.
+
+## Versions
+
+| | |
+|---|---|
+| this app | 0.6.0 (tag `v0.6.0`) |
+| skein-sdk | v0.6.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`, `files`; no wallet) |
+| skein | the bundles from `lib/SKEIN_REV`; the app installs into a skein with the #77 manifest shape |
