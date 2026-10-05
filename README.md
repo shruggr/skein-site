@@ -7,7 +7,7 @@ the same everywhere; what makes the page yours is the wallet in your
 browser. A skein from the default image serves nothing until something is
 installed: the host's own skein carries this app, installed by the host's
 owner, and you manage your skeins from there, the page talking to each one
-directly. Version **0.6.1** (shruggr/skein#92; the Inbox, #99; handles,
+directly. Version **0.6.2** (shruggr/skein#92; the Inbox, #99; handles,
 #103; profiles and search, #104; the wallet's grouped request, #97; an app,
 #125; the signed claim, shruggr/skein#127).
 
@@ -155,7 +155,7 @@ The manifest (description left out):
 {
   "kind": "app",
   "name": "site",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "programs": { "site": "bin/site.wasm" },
   "provides": [{ "interface": "site/1", "functions": { "get": { "writes": false,
     "args": { "method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map" },
@@ -179,7 +179,7 @@ From the management page of a skein you own (Install, by URL and commit
 id), or with skein's reference client as the owner:
 
 ```
-skein plan install https://github.com/shruggr/skein-site#<the v0.6.1 commit> --origin <the skein's URL> --out plan
+skein plan install https://github.com/shruggr/skein-site#<the v0.6.2 commit> --origin <the skein's URL> --out plan
 skein send <the skein's URL> plan
 ```
 
@@ -247,6 +247,6 @@ repository pinned in skein's `src/testapps.ts`.
 
 | | |
 |---|---|
-| this app | 0.6.1 (tag `v0.6.1`) |
+| this app | 0.6.2 (tag `v0.6.2`): the bundles rebuilt on a skein whose address book has no roles (shruggr/skein#126); the address book page has no role column |
 | skein-sdk | v0.6.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`, `files`; no wallet) |
 | skein | the bundles from `lib/SKEIN_REV`; the app installs into a skein with the #77 manifest shape |

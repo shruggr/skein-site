@@ -233,7 +233,7 @@ class Skein {
     if (head("peers")) {
       for (const e of (await this.record(head("peers")))?.peers ?? []) {
         const p = await this.record(e.peer);
-        book.push({ key: keyHex(p.key ?? e.key), transport: p.transport ?? "mailbox", address: p.address ?? "", ...(p.role ? { role: p.role } : {}), ...(p.handle ? { handle: p.handle } : {}), ...(p.domain ? { domain: p.domain } : {}), ...(p.source ? { source: p.source } : {}) });
+        book.push({ key: keyHex(p.key ?? e.key), transport: p.transport ?? "mailbox", address: p.address ?? "", ...(p.handle ? { handle: p.handle } : {}), ...(p.domain ? { domain: p.domain } : {}), ...(p.source ? { source: p.source } : {}) });
       }
     }
     const chain = await this.read(`/thread/${dispatchOrigin()}`);
@@ -816,7 +816,7 @@ async function peersPage(m, sk) {
   const st = h("div", { class: "status" });
   const body = h("tbody");
   for (const e of view.addressBook) {
-    body.append(h("tr", { "data-peer": e.key }, h("td", { class: "key", title: e.key }, short(e.key)), h("td", {}, e.role ?? ""), h("td", {}, e.transport), h("td", {}, e.address), h("td", {}, e.handle ?? ""), h("td", { class: "mut small" }, e.source ?? ""),
+    body.append(h("tr", { "data-peer": e.key }, h("td", { class: "key", title: e.key }, short(e.key)), h("td", {}, e.transport), h("td", {}, e.address), h("td", {}, e.handle ?? ""), h("td", { class: "mut small" }, e.source ?? ""),
       h("td", {}, h("button", { type: "button", onclick: async () => {
         if (!confirm(`Remove ${e.key} from the address book? (a peers message from you)`)) return;
         try { await sk.send("peers", { op: "remove", key: fromHex(e.key) }); await sleep(500); sk.records.clear(); route(); } catch (err) { status(st, errText(err), "bad"); }
