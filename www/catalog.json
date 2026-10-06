@@ -7,7 +7,7 @@
       "description": "The shell over a tree: brush, coreutils, the toolset, python's stdlib. Box run." },
     { "name": "chat", "version": "0.1.0", "url": "https://github.com/shruggr/skein-chat", "hash": "a9491ee30668aeee5a44745403dadf7355825a51",
       "description": "The chat loop: turns with an inference peer, its bash calls in the shell app. Box chat; needs the shell app." },
-    { "name": "chain", "version": "0.3.2", "url": "https://github.com/shruggr/skein-chain", "hash": "22ae34d5646f30aef35b0efcad39a7be8ae7ac34",
+    { "name": "chain", "version": "0.4.0", "url": "https://github.com/shruggr/skein-chain", "hash": "e8d21021182ae02c673e2a2809cea5e1988bd47a",
       "description": "Chain state: headers, transactions, proofs; ingests BEEF and broadcasts." },
     { "name": "overlay", "version": "0.7.7", "url": "https://github.com/shruggr/skein-overlay", "hash": "9e30a64451353145e950d001f79886a60c6f2bb1",
       "description": "The overlay engine: BRC-22 submit and BRC-24 lookup over topic managers. Needs the chain app." },
