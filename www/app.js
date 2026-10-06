@@ -77,11 +77,11 @@ function status(el, text, cls = "") { el.className = `status ${cls}`; el.textCon
  * handle has no avatar): a 5×5 grid mirrored left to right, its cells and
  * colour from SHA-256 of the key.
  */
-function identicon(key, size = 28) {
+function identicon(key, size = 28, cls = "") {
   const d = Hash.sha256(Utils.toArray(key, "hex"));
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
-  for (const [k, v] of Object.entries({ viewBox: "0 0 5 5", width: size, height: size, class: "avatar", "aria-hidden": "true" })) svg.setAttribute(k, String(v));
+  for (const [k, v] of Object.entries({ viewBox: "0 0 5 5", width: size, height: size, class: `avatar ${cls}`.trim(), "aria-hidden": "true" })) svg.setAttribute(k, String(v));
   const fill = `hsl(${((d[0] << 8) | d[1]) % 360} 55% 48%)`;
   for (let y = 0; y < 5; y++) {
     for (let x = 0; x < 3; x++) {
@@ -95,6 +95,20 @@ function identicon(key, size = 28) {
   }
   return svg;
 }
+
+/** The inspect icon (a list and a magnifier), for the link to a skein's log, threads and dispatch table. */
+function inspectIcon() {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  for (const [k, v] of Object.entries({ width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 1.6, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(k, String(v));
+  for (const [tag, attrs] of [["path", { d: "M4 6h16M4 12h10M4 18h7" }], ["circle", { cx: 18, cy: 16, r: 3 }], ["path", { d: "M20.2 18.2 22 20" }]]) {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    svg.append(e);
+  }
+  return svg;
+}
+const inspectLink = (identity) => h("a", { class: "icon-btn", href: `#/s/${identity}/log`, "aria-label": "Inspect: log, threads, dispatch table", title: "Inspect: log, threads, dispatch table" }, inspectIcon());
 const errText = (e) => (e instanceof Error ? e.message : String(e));
 
 // ---------------------------------------------------------------- the wallet
@@ -131,10 +145,28 @@ async function connect() {
 async function useWallet() {
   state.wallet = await connect();
   state.me = (await state.wallet.getPublicKey({ identityKey: true })).publicKey;
-  $("who").textContent = `you: ${short(state.me)}`;
+  renderWho();
   $("who").title = state.me;
   $("connect").hidden = true;
   await loadLocators();
+}
+
+/**
+ * The wallet chip in the header: your handle when the page has read it
+ * (state.handles, from myHandles), else your key shortened; the key in mono
+ * under it. Nothing is fetched for it.
+ */
+function renderWho() {
+  const who = $("who");
+  if (!state.me) return;
+  const x = (state.handles ?? []).find((r) => r.handle && !r.error);
+  const key = short(state.me, 4);
+  who.className = "who on";
+  who.replaceChildren(
+    x ? picFor(state.me, x.profile, "avatar-sm") : identicon(state.me, 30, "avatar-sm"),
+    h("span", { class: "who-text" },
+      x ? h("span", { class: "who-name" }, `${x.handle}@${x.domain}`) : "",
+      h("span", { class: "who-key" }, key)));
 }
 
 // ---------------------------------------------------------------- locators
@@ -345,13 +377,17 @@ async function profileIn(a, domain) {
  * are marked as signed by the handle's key; the host's hints, shown only
  * without one, as unattested.
  */
+function picFor(key, prof = { hints: {} }, cls = "") {
+  const a = prof.attested, hint = prof.hints;
+  const c = `avatar ${cls}`.trim();
+  if (a?.avatar && hint.avatarURL?.endsWith(`/${a.avatar}`)) return h("img", { class: c, src: hint.avatarURL, alt: "", width: 28, height: 28, title: `avatar ${a.avatar}` });
+  if (!a && hint.avatarURL) return h("img", { class: c, src: hint.avatarURL, alt: "", width: 28, height: 28, title: "avatar: from the host, unattested" });
+  return identicon(key, 28, cls);
+}
+
 function handleView(key, handle, domain, prof = { hints: {} }) {
   const a = prof.attested, hint = prof.hints;
-  let pic;
-  if (a?.avatar && hint.avatarURL?.endsWith(`/${a.avatar}`)) pic = h("img", { class: "avatar", src: hint.avatarURL, alt: "", width: 28, height: 28, title: `avatar ${a.avatar}` });
-  else if (!a && hint.avatarURL) pic = h("img", { class: "avatar", src: hint.avatarURL, alt: "", width: 28, height: 28, title: "avatar: from the host, unattested" });
-  else pic = identicon(key);
-  return h("span", { class: "handle" }, pic,
+  return h("span", { class: "handle" }, picFor(key, prof),
     h("span", {}, `${handle}@${domain}`,
       a?.name ? h("span", { class: "pname" }, ` ${a.name}`) : "",
       a ? h("span", { class: "small ok" }, " (profile signed by its key)") : "",
@@ -394,7 +430,9 @@ async function myHandles(refresh = false) {
     } catch (e) { row.error = errText(e); }
     out.push(row);
   }
-  return (state.handles = out);
+  state.handles = out;
+  renderWho();
+  return out;
 }
 
 /** A handle's resolution (§5.2) at its domain's resolve endpoint. */
@@ -431,13 +469,13 @@ async function setProfile(row, name, avatar) {
 /** The Profile form of one of your handles: the current profile, and Save (setProfile). */
 function profileForm(x) {
   const a = x.profile?.attested;
-  const name = h("input", { type: "text", name: "name", placeholder: "a name (optional)", value: a?.name ?? "" });
-  const avatar = h("input", { type: "text", name: "avatar", placeholder: "avatar: an image inscription's outpoint, txid_vout (optional)", value: a?.avatar ?? "" });
+  const name = h("input", { type: "text", name: "name", placeholder: "a name (optional)", "aria-label": "Name", value: a?.name ?? "" });
+  const avatar = h("input", { type: "text", name: "avatar", placeholder: "avatar: an image inscription's outpoint, txid_vout (optional)", "aria-label": "Avatar outpoint", value: a?.avatar ?? "" });
   const st = h("div", { class: "status profile-status" });
   const now = a
     ? `Now: ${a.name ? `name ${a.name}` : "no name"}, ${a.avatar ? `avatar ${a.avatar}` : "no avatar"} (signed by your key, verified here).`
     : "No profile yet.";
-  return h("details", { class: "profile" }, h("summary", { class: "small" }, "Profile"),
+  const panel = h("div", { class: "profile", hidden: true },
     h("p", { class: "mut small" }, `${now} Your wallet signs the name and the avatar (an image inscription, by outpoint); ${x.domain} keeps them and serves them with ${x.handle}@${x.domain} when it is resolved or found.`),
     h("form", { class: "row profile-form", onsubmit: async (e) => {
       e.preventDefault();
@@ -450,6 +488,11 @@ function profileForm(x) {
         route();
       } catch (err) { status(st, errText(err), "bad"); }
     } }, name, avatar, h("button", { type: "submit", class: "go" }, "Save")), st);
+  const open = h("button", { type: "button", class: "outline", "aria-expanded": "false", onclick: () => {
+    panel.hidden = !panel.hidden;
+    open.setAttribute("aria-expanded", String(!panel.hidden));
+  } }, "Edit profile");
+  return { open, panel };
 }
 
 /**
@@ -460,14 +503,16 @@ function profileForm(x) {
  */
 function searchSection(m, host) {
   if (!host.search) return;
-  const q = h("input", { type: "text", name: "q", placeholder: "a handle or a name" });
-  const go = h("button", { type: "submit" }, "Search");
+  const q = h("input", { type: "text", name: "q", placeholder: "a handle or a name", "aria-label": "A handle or a name" });
+  const go = h("button", { type: "submit", class: "outline" }, "Search");
   const st = h("div", { class: "status", id: "search-status" });
   const out = h("div", { id: "search-results" });
   const where = `${host.name ? `${host.name}, ` : ""}${host.domain}`;
-  m.append(h("h2", {}, "Find a handle"),
-    h("p", { class: "mut small" }, `Asks ${host.search} (${where}) only, when you press Search. Results are hints from the host: resolve a handle before you rely on it. A profile signed by its handle's key is marked; anything else the host adds is unattested.`),
-    h("form", { class: "row", id: "search", onsubmit: async (e) => {
+  const sec = h("section", { class: "find" });
+  m.append(sec);
+  sec.append(h("h2", {}, "Find a handle"),
+    h("p", { class: "mut small" }, `Asks ${where} when you press Search. Results are the host's hints: resolve a handle before you rely on it. A profile signed by its handle's key is marked.`),
+    h("form", { class: "row find-row", id: "search", onsubmit: async (e) => {
       e.preventDefault();
       if (go.disabled) return;
       go.disabled = true;
@@ -526,8 +571,12 @@ async function route() {
   const params = new URLSearchParams(query);
   const m = main();
   m.replaceChildren();
+  const inInbox = parts[0] === "inbox";
+  for (const [id, on] of [["nav-skeins", !inInbox], ["nav-inbox", inInbox]]) {
+    if (on) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current");
+  }
   if (!state.wallet) {
-    m.append(h("h1", {}, "skein"), h("p", {}, "Connect a BRC-100 wallet to see your skeins, create one here, and manage them. Your locators (which skeins you keep, and where) are outputs in your wallet."));
+    m.append(h("section", { class: "sec intro" }, h("h1", {}, "Your skeins"), h("p", { class: "lead" }, "Connect a BRC-100 wallet to see your skeins, create one here, and manage them. Your locators (which skeins you keep, and where) are outputs in your wallet.")));
     return;
   }
   try {
@@ -555,27 +604,14 @@ async function route() {
 }
 
 async function home(m) {
-  m.append(h("h1", {}, "Your skeins"));
-  const list = h("tbody");
-  for (const l of state.locators) {
-    const st = h("span", { class: "mut small" });
-    list.append(h("tr", { "data-locator": l.identity },
-      h("td", {}, h("a", { href: `#/s/${l.identity}` }, l.handle || short(l.identity))),
-      h("td", {}, h("a", { href: `${l.url}/` }, l.url)),
-      h("td", { class: "key", title: l.identity }, short(l.identity)),
-      h("td", {}, h("button", { type: "button", onclick: async () => { status(st, "removing"); try { await removeLocator(l); route(); } catch (e) { status(st, errText(e), "bad"); } } }, "Remove"), st)));
-  }
-  m.append(state.locators.length
-    ? h("table", { id: "locators" }, h("thead", {}, h("tr", {}, h("th", {}, "skein"), h("th", {}, "where"), h("th", {}, "identity"), h("th", {}))), list)
-    : h("p", { class: "mut", id: "locators" }, "No locators in your wallet yet."));
+  const skeinsSec = h("section", { class: "sec" });
+  m.append(skeinsSec);
 
-  await handlesSection(m);
-
-  // Add a locator (a bookmark: what it resolves to is what your key may do there).
+  // Add a locator (a bookmark: what it resolves to is what your key may do there), behind its link.
   const add = h("div", { class: "status" });
-  const url = h("input", { type: "text", name: "url", placeholder: "the skein's URL", value: here });
-  const handle = h("input", { type: "text", name: "handle", placeholder: "a name for it" });
-  m.append(h("h2", {}, "Add a locator"),
+  const url = h("input", { type: "text", name: "url", placeholder: "the skein's URL", "aria-label": "The skein's URL", value: here });
+  const handle = h("input", { type: "text", name: "handle", placeholder: "a name for it", "aria-label": "A name for it" });
+  const addPanel = h("div", { class: "card add-panel", id: "add-panel", hidden: true },
     h("p", { class: "mut small" }, "A locator is an output in your wallet (basket skein-locators) naming a skein's identity and where it answers. Anyone may keep one for any skein."),
     h("form", { class: "row", id: "add-locator", onsubmit: async (e) => {
       e.preventDefault();
@@ -587,79 +623,147 @@ async function home(m) {
         await addLocator({ identity, url: u, handle: handle.value.trim() || new URL(u).hostname.split(".")[0] });
         route();
       } catch (err) { status(add, errText(err), "bad"); }
-    } }, url, handle, h("button", { type: "submit" }, "Add")), add);
+    } }, url, handle, h("button", { type: "submit", class: "outline" }, "Add")), add);
+  const reveal = h("button", { type: "button", class: "linklike", "aria-expanded": "false", "aria-controls": "add-panel", onclick: () => {
+    addPanel.hidden = !addPanel.hidden;
+    reveal.setAttribute("aria-expanded", String(!addPanel.hidden));
+  } }, "Add one you already have, by its URL");
+  skeinsSec.append(h("div", { class: "sec-head" }, h("h1", {}, "Your skeins"), reveal), addPanel);
+
+  // One card per locator.
+  const grid = h("div", { class: "grid", id: "locators" });
+  for (const l of state.locators) {
+    const st = h("span", { class: "status small" });
+    grid.append(h("article", { class: "card skein-card", "data-locator": l.identity },
+      h("div", { class: "card-top" },
+        h("div", { class: "card-id" },
+          h("a", { class: "card-title", href: `#/s/${l.identity}` }, l.handle || short(l.identity)),
+          h("a", { class: "url", href: `${l.url}/` }, l.url)),
+        inspectLink(l.identity)),
+      h("div", { class: "meta", title: l.identity }, `identity ${short(l.identity, 6)}`),
+      h("div", { class: "actions" },
+        h("a", { class: "btn primary", href: `#/s/${l.identity}` }, "Manage"),
+        h("button", { type: "button", class: "quiet", onclick: async () => { status(st, "removing"); try { await removeLocator(l); route(); } catch (e) { status(st, errText(e), "bad"); } } }, "Remove from wallet")),
+      st));
+  }
 
   // Create a skein (on a host skein: the onboarding app's route on the skein that served this page).
   const made = h("div", { class: "status", id: "create-status" });
-  const name = h("input", { type: "text", name: "handle", placeholder: "handle (a hostname label)" });
-  m.append(h("h2", {}, "Create a skein here"),
-    h("p", { class: "mut small" }, `Asks ${here} for a new skein owned by your key. It works where the onboarding app is installed (a host skein).`),
-    h("form", { class: "row", id: "create", onsubmit: async (e) => {
-      e.preventDefault();
-      const handle = name.value.trim();
-      if (!handle) return;
-      try {
-        status(made, `asking ${here} to create ${handle}`);
-        // #127: the new skein's owner is the sender of its claim; your wallet signs it now (naming no recipient), the host forwards it.
-        const claim = await signClaim(state.wallet);
-        const r = await boxFor(here).af.fetch(`${here}/onboard/call`, { method: "POST", headers: { "content-type": "application/json" }, body: new TextDecoder().decode(dagJson.encode({ fn: "onboard.create", args: { handle, claim } })) });
-        const text = await r.text();
-        let v = {};
-        try { v = JSON.parse(text); } catch { /* shown as text */ }
-        if (r.status === 404) throw new Error("this skein does not create skeins (no onboarding app here)");
-        if (r.status !== 200 || !v.result) throw new Error(v.error?.message ?? `HTTP ${r.status} ${text.slice(0, 200)}`);
-        const { identity, url: at } = v.result;
-        status(made, `created ${handle}: ${at}\nwriting its locator into your wallet`, "ok");
-        await addLocator({ identity, url: at, handle });
-        status(made, `created ${handle}: ${at}\nlocator written; opening it`, "ok");
-        // A new skein serves no page (#125): it is managed from here, talking to it directly.
-        location.hash = `#/s/${identity}`;
-      } catch (err) { status(made, errText(err), "bad"); }
-    } }, name, h("button", { type: "submit", class: "go" }, "Create")), made);
+  const name = h("input", { type: "text", name: "handle", id: "create-name", placeholder: "a hostname label" });
+  grid.append(h("form", { class: "card dashed create-card", id: "create", onsubmit: async (e) => {
+    e.preventDefault();
+    const handle = name.value.trim();
+    if (!handle) return;
+    try {
+      status(made, `asking ${here} to create ${handle}`);
+      // #127: the new skein's owner is the sender of its claim; your wallet signs it now (naming no recipient), the host forwards it.
+      const claim = await signClaim(state.wallet);
+      const r = await boxFor(here).af.fetch(`${here}/onboard/call`, { method: "POST", headers: { "content-type": "application/json" }, body: new TextDecoder().decode(dagJson.encode({ fn: "onboard.create", args: { handle, claim } })) });
+      const text = await r.text();
+      let v = {};
+      try { v = JSON.parse(text); } catch { /* shown as text */ }
+      if (r.status === 404) throw new Error("this skein does not create skeins (no onboarding app here)");
+      if (r.status !== 200 || !v.result) throw new Error(v.error?.message ?? `HTTP ${r.status} ${text.slice(0, 200)}`);
+      const { identity, url: at } = v.result;
+      status(made, `created ${handle}: ${at}\nwriting its locator into your wallet`, "ok");
+      await addLocator({ identity, url: at, handle });
+      status(made, `created ${handle}: ${at}\nlocator written; opening it`, "ok");
+      // A new skein serves no page (#125): it is managed from here, talking to it directly.
+      location.hash = `#/s/${identity}`;
+    } catch (err) { status(made, errText(err), "bad"); }
+  } },
+    h("div", { class: "card-title" }, "Create a skein"),
+    h("p", { class: "help" }, `A new skein on ${new URL(here).host}, owned by your key. Your wallet signs the claim.`),
+    h("label", { for: "create-name", class: "label" }, "Name"),
+    h("div", { class: "row" }, name, h("button", { type: "submit", class: "outline" }, "Create")),
+    made));
+  if (!state.locators.length) skeinsSec.append(h("p", { class: "mut" }, "No locators in your wallet yet."));
+  skeinsSec.append(grid);
+
+  await handlesSection(m);
 }
 
-/** Your handles (certificates in your wallet), and Register a handle on this page's host. */
+/** Your handle (a certificate in your wallet) with its profile, or Register a handle on this page's host; then Find a handle. */
 async function handlesSection(m) {
   const host = await hostInfo();
   if (!host) return;
-  m.append(h("h2", {}, "Your handles"));
-  const at = h("div", { id: "handles" }, h("p", { class: "mut" }, "Reading the handle certificates in your wallet."));
-  m.append(at);
+  const title = h("h2", {}, "Your handle");
+  const at = h("div", { class: "handles", id: "handles" }, h("p", { class: "mut" }, "Reading the handle certificates in your wallet."));
+  m.append(h("section", { class: "sec" }, title, at));
   try {
     const list = await myHandles();
-    at.replaceChildren(list.length
-      ? h("table", {}, h("tbody", {}, list.map((x) => h("tr", { "data-handle": x.handle ? `${x.handle}@${x.domain}` : x.serialNumber },
-        h("td", {}, x.handle ? handleView(state.me, x.handle, x.domain, x.profile) : short(x.serialNumber)),
-        h("td", {}, x.messagebox ? [h("a", { href: "#/inbox" }, x.messagebox), profileForm(x)] : h("span", { class: "bad" }, x.error ?? ""))))))
-      : h("p", { class: "mut" }, `No handle certificate from ${host.domain} in your wallet.`));
+    if (list.length > 1) title.textContent = "Your handles";
+    at.replaceChildren(...(list.length ? list.map((x) => handleCard(x)) : [h("p", { class: "mut" }, `No handle certificate from ${host.domain} in your wallet.`), registerCard(host)]));
   } catch (e) { at.replaceChildren(h("p", { class: "bad" }, `listCertificates: ${errText(e)}`)); }
-
-  const st = h("div", { class: "status", id: "register-status" });
-  const name = h("input", { type: "text", name: "handle", placeholder: "a name (a host name label)" });
-  m.append(h("h2", {}, "Register a handle"),
-    h("p", { class: "mut small" }, `Asks ${host.origin} for <name>@${host.domain} for your key, signed by your wallet: the host creates your mailbox there and answers with the handle certificate, which your wallet keeps. One handle per key on a host.`),
-    h("form", { class: "row", id: "register", onsubmit: async (e) => {
-      e.preventDefault();
-      const n = name.value.trim().toLowerCase();
-      if (!n) return;
-      try {
-        status(st, `registering ${n}@${host.domain}`);
-        const v = await registerHandle(n);
-        status(st, `${v.handle}@${v.domain}: the certificate is in your wallet; your mailbox is ${v.messagebox}`, "ok");
-        await sleep(300);
-        route();
-      } catch (err) { status(st, errText(err), "bad"); }
-    } }, name, h("span", { class: "mut" }, `@${host.domain}`), h("button", { type: "submit", class: "go" }, "Register")), st);
 
   searchSection(m, host);
 }
 
+/** One of your handles: its picture, its name, the handle, its mailbox; Edit profile and Open inbox. */
+function handleCard(x) {
+  const id = x.handle ? `${x.handle}@${x.domain}` : x.serialNumber;
+  if (!x.messagebox) {
+    return h("article", { class: "card handle-card", "data-handle": id },
+      identicon(state.me, 52, "avatar-lg"),
+      h("div", { class: "handle-body" },
+        h("span", { class: "hname" }, x.handle ? `${x.handle}@${x.domain}` : short(x.serialNumber)),
+        h("span", { class: "bad small" }, x.error ?? "")));
+  }
+  const a = x.profile?.attested, hint = x.profile?.hints ?? {};
+  const { open, panel } = profileForm(x);
+  return h("article", { class: "card handle-card", "data-handle": id },
+    picFor(state.me, x.profile, "avatar-lg"),
+    h("div", { class: "handle-body" },
+      a?.name ? h("span", { class: "pname" }, a.name)
+        : !a && hint.displayName ? h("span", { class: "pname" }, hint.displayName, h("span", { class: "small wait" }, " (from the host, unattested)"))
+        : "",
+      h("span", { class: "hid" }, `${x.handle}@${x.domain}`),
+      a ? h("span", { class: "small ok" }, "Profile signed by its key.") : "",
+      h("span", { class: "small mut" }, "Mailbox ", h("a", { href: "#/inbox" }, x.messagebox), " · certificate in your wallet"),
+      h("div", { class: "actions" }, open, h("a", { class: "btn-link", href: "#/inbox" }, "Open inbox")),
+      panel));
+}
+
+/** Register a handle on this page's host (shown only while your key has none from it). */
+function registerCard(host) {
+  const st = h("div", { class: "status", id: "register-status" });
+  const name = h("input", { type: "text", name: "handle", id: "register-name", placeholder: "a name", autocomplete: "off" });
+  return h("form", { class: "card dashed register-card", id: "register", onsubmit: async (e) => {
+    e.preventDefault();
+    const n = name.value.trim().toLowerCase();
+    if (!n) return;
+    try {
+      status(st, `registering ${n}@${host.domain}`);
+      const v = await registerHandle(n);
+      status(st, `${v.handle}@${v.domain}: the certificate is in your wallet; your mailbox is ${v.messagebox}`, "ok");
+      await sleep(300);
+      route();
+    } catch (err) { status(st, errText(err), "bad"); }
+  } },
+    h("div", { class: "card-title" }, "Register a handle"),
+    h("p", { class: "help" }, `Your wallet signs the request to ${host.origin}. The host creates your mailbox and answers with the handle certificate, which your wallet keeps. One handle per key on a host.`),
+    h("label", { for: "register-name", class: "label" }, "Name"),
+    h("div", { class: "row" },
+      h("span", { class: "suffixed" }, name, h("span", { class: "suffix" }, `@${host.domain}`)),
+      h("button", { type: "submit", class: "go" }, "Register")),
+    st);
+}
+
+const EXPLORER = ["log", "threads", "dispatch", "thread", "record", "edges"];
+
 function skeinHeader(sk, page) {
-  const tab = (p, label) => (p === page ? h("strong", {}, label) : h("a", { href: `#/s/${sk.loc.identity}${p ? `/${p}` : ""}` }, label));
-  return h("div", {},
-    h("h1", {}, sk.loc.handle || short(sk.loc.identity), " ", h("span", { class: "mut small" }, sk.loc.url)),
-    h("div", { class: "key mut small", title: sk.loc.identity }, sk.loc.identity),
-    h("nav", { class: "tabs" }, tab("", "apps"), tab("peers", "address book"), tab("log", "log"), tab("threads", "threads"), tab("dispatch", "dispatch table")));
+  const id = sk.loc.identity;
+  const tab = (p, label) => (p === page ? h("a", { href: `#/s/${id}${p ? `/${p}` : ""}`, "aria-current": "page" }, label) : h("a", { href: `#/s/${id}${p ? `/${p}` : ""}` }, label));
+  const sub = (p, label) => (p === page ? h("strong", {}, label) : h("a", { href: `#/s/${id}/${p}` }, label));
+  return h("div", { class: "skein-head" },
+    h("div", { class: "card-top" },
+      h("div", { class: "card-id" },
+        h("h1", {}, sk.loc.handle || short(id)),
+        h("a", { class: "url", href: `${sk.loc.url}/` }, sk.loc.url),
+        h("div", { class: "meta", title: id }, `identity ${id}`)),
+      inspectLink(id)),
+    h("nav", { class: "tabs", "aria-label": "This skein" }, tab("", "apps"), tab("peers", "address book")),
+    EXPLORER.includes(page) ? h("nav", { class: "sublinks small", "aria-label": "Inspect" }, sub("log", "log"), sub("threads", "threads"), sub("dispatch", "dispatch table")) : "");
 }
 
 /** A value as the explorer gives it, its links clickable. */
