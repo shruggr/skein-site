@@ -169,6 +169,21 @@ function renderWho() {
       h("span", { class: "who-key" }, key)));
 }
 
+/**
+ * Connect failed: one short line in the header, "No wallet found" when no
+ * wallet answered, else the first line of the error; the full text in title.
+ */
+function connectFailed(e) {
+  const text = errText(e);
+  const none = text.includes("No wallet available") || text.startsWith("no wallet:");
+  let msg = none ? "No wallet found" : text.split("\n")[0];
+  if (msg.length > 60) msg = `${msg.slice(0, 57)}…`;
+  const who = $("who");
+  who.className = "who bad";
+  who.title = text;
+  who.textContent = msg;
+}
+
 // ---------------------------------------------------------------- locators
 
 async function loadLocators() {
@@ -1144,9 +1159,10 @@ async function inboxPage(m) {
 async function start() {
   try { state.catalog = (await (await fetch("catalog.json")).json()).apps ?? []; } catch { state.catalog = []; }
   $("nav-how").onclick = (e) => { e.preventDefault(); document.getElementById("how")?.scrollIntoView({ behavior: "smooth" }); };
-  $("connect").onclick = async () => { try { await useWallet(); route(); } catch (e) { $("who").textContent = errText(e); } };
+  $("connect").onclick = async () => { try { await useWallet(); route(); } catch (e) { connectFailed(e); } };
   window.addEventListener("hashchange", () => route());
-  try { await useWallet(); } catch (e) { $("who").textContent = `no wallet connected (${errText(e)})`; }
+  // The silent probe on load: no wallet is the normal case, so the header keeps only Connect.
+  try { await useWallet(); } catch (e) { console.debug("wallet probe on load:", errText(e)); }
   await route();
   window.siteReady = true;
 }

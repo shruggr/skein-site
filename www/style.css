@@ -35,6 +35,7 @@ nav.primary a:hover{color:var(--fg)}
 nav.primary a[aria-current=page]{color:var(--fg);border-bottom-color:var(--rust)}
 .wallet{margin-left:auto;flex:1 1 16em;min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:10px}
 .who{font-size:13px;color:var(--mut);min-width:0;text-align:right}
+.who.bad{color:var(--bad);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .who.on{flex:none;text-align:left;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:22px;padding:5px 14px 5px 6px;min-height:44px;color:var(--fg)}
 #connect{flex:none;white-space:nowrap}
 .who-text{display:flex;flex-direction:column;line-height:1.2}
