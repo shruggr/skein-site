@@ -680,12 +680,25 @@ async function home(m) {
   }
 
   // Create a skein (on a host skein: the onboarding app's route on the skein that served this page).
-  const made = h("div", { class: "status", id: "create-status" });
+  const made = h("div", { class: "status", id: "create-status", "aria-live": "polite" });
   const name = h("input", { type: "text", name: "handle", id: "create-name", placeholder: "a hostname label" });
-  grid.append(h("form", { class: "card dashed create-card", id: "create", onsubmit: async (e) => {
+  const go = h("button", { type: "submit", class: "outline" }, "Create");
+  // The wait (a new skein loads the chain's headers on its first step, 15–20 s): the mark turning, the seconds counting.
+  const secs = h("span", { class: "wait-secs" });
+  const wait = h("div", { class: "wait", id: "create-wait", hidden: true }, h("img", { src: "skein-mark.jpg", alt: "", width: "22", height: "22" }), h("span", {}, "Creating your skein and loading the chain…", secs));
+  let tick;
+  const busy = (on) => {
+    clearInterval(tick);
+    name.disabled = go.disabled = on;
+    if (on) form.setAttribute("aria-busy", "true"); else form.removeAttribute("aria-busy");
+    wait.hidden = !on;
+    if (on) { const t0 = Date.now(); secs.textContent = ""; tick = setInterval(() => { secs.textContent = ` · ${Math.floor((Date.now() - t0) / 1000)} s`; }, 1000); }
+  };
+  const form = h("form", { class: "card dashed create-card", id: "create", onsubmit: async (e) => {
     e.preventDefault();
     const handle = name.value.trim();
     if (!handle) return;
+    busy(true);
     try {
       status(made, `asking ${here} to create ${handle}`);
       // #127: the new skein's owner is the sender of its claim; your wallet signs it now (naming no recipient), the host forwards it.
@@ -702,13 +715,15 @@ async function home(m) {
       status(made, `created ${handle}: ${at}\nlocator written; opening it`, "ok");
       // A new skein serves no page (#125): it is managed from here, talking to it directly.
       location.hash = `#/s/${identity}`;
-    } catch (err) { status(made, errText(err), "bad"); }
+    } catch (err) { status(made, errText(err), "bad"); } finally { busy(false); }
   } },
     h("div", { class: "card-title" }, "Create a skein"),
     h("p", { class: "help" }, `A new skein on ${new URL(here).host}, owned by your key. Your wallet signs the claim.`),
     h("label", { for: "create-name", class: "label" }, "Name"),
-    h("div", { class: "row" }, name, h("button", { type: "submit", class: "outline" }, "Create")),
-    made));
+    h("div", { class: "row" }, name, go),
+    wait,
+    made);
+  grid.append(form);
   if (!state.locators.length) skeinsSec.append(h("p", { class: "mut" }, "No locators in your wallet yet."));
   skeinsSec.append(grid);
 

@@ -7,7 +7,7 @@ the same everywhere; what makes the page yours is the wallet in your
 browser. A skein from the default image serves nothing until something is
 installed: the host's own skein carries this app, installed by the host's
 owner, and you manage your skeins from there, the page talking to each one
-directly. Version **0.7.3** (shruggr/skein#92; the Inbox, #99; handles,
+directly. Version **0.7.4** (shruggr/skein#92; the Inbox, #99; handles,
 #103; profiles and search, #104; the wallet's grouped request, #97; an app,
 #125; the signed claim, shruggr/skein#127).
 
@@ -155,7 +155,7 @@ The manifest (description left out):
 {
   "kind": "app",
   "name": "site",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "programs": { "site": "bin/site.wasm" },
   "provides": [{ "interface": "site/1", "functions": { "get": { "writes": false,
     "args": { "method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map" },
@@ -179,7 +179,7 @@ From the management page of a skein you own (Install, by URL and commit
 id), or with skein's reference client as the owner:
 
 ```
-skein plan install https://github.com/shruggr/skein-site#<the v0.7.3 commit> --origin <the skein's URL> --out plan
+skein plan install https://github.com/shruggr/skein-site#<the v0.7.4 commit> --origin <the skein's URL> --out plan
 skein send <the skein's URL> plan
 ```
 
@@ -247,6 +247,6 @@ repository pinned in skein's `src/testapps.ts`.
 
 | | |
 |---|---|
-| this app | 0.7.3 (tag `v0.7.3`): the page in the skein brand (0.7.0: header + wallet chip, skein cards, handle/Register card, self-hosted fonts, the mark), the logged-out landing page (0.7.1), quiet without a wallet (0.7.2); manifest and package versions aligned. 0.6.3: the catalog pins the current releases (git 0.1.2, shell 0.1.1, chain 0.3.2, overlay 0.7.7, onboard 0.3.2). 0.6.2: the bundles rebuilt on a skein whose address book has no roles (shruggr/skein#126); the address book page has no role column |
+| this app | 0.7.4 (tag `v0.7.4`): the page in the skein brand (0.7.0: header + wallet chip, skein cards, handle/Register card, self-hosted fonts, the mark), the logged-out landing page (0.7.1), quiet without a wallet (0.7.2); manifest and package versions aligned (0.7.3); Create shows the wait (the mark turning, the seconds counting) while the new skein loads the chain. 0.6.3: the catalog pins the current releases (git 0.1.2, shell 0.1.1, chain 0.3.2, overlay 0.7.7, onboard 0.3.2). 0.6.2: the bundles rebuilt on a skein whose address book has no roles (shruggr/skein#126); the address book page has no role column |
 | skein-sdk | v0.6.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`, `files`; no wallet) |
 | skein | the bundles from `lib/SKEIN_REV`; the app installs into a skein with the #77 manifest shape |
