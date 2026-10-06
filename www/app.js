@@ -474,7 +474,8 @@ async function setProfile(row, name, avatar) {
   const { signature } = await state.wallet.createSignature({ protocolID: PROFILE, keyID: PROFILE_KEY_ID, counterparty: "anyone", data: bytes });
   const host = await hostInfo();
   if (!host || row.domain !== host.domain) throw new Error(`${row.handle}@${row.domain} is not a handle of this page's host`);
-  const r = await fetch(`${host.origin}/account/profile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle: row.handle, record: Utils.toBase64(bytes), signature: toHex(signature) }) });
+  // A write (it keeps the record): a signed request, over the wallet's session (shruggr/skein#135).
+  const r = await boxFor(host.origin).af.fetch(`${host.origin}/account/profile`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ handle: row.handle, record: Utils.toBase64(bytes), signature: toHex(signature) }) });
   let v = {};
   try { v = await r.json(); } catch { /* the status says it */ }
   if (r.status !== 200) throw new Error(v.error ?? `HTTP ${r.status}`);
