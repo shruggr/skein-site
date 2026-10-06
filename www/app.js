@@ -575,10 +575,9 @@ async function route() {
   for (const [id, on] of [["nav-skeins", !inInbox], ["nav-inbox", inInbox]]) {
     if (on) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current");
   }
-  if (!state.wallet) {
-    m.append(h("section", { class: "sec intro" }, h("h1", {}, "Your skeins"), h("p", { class: "lead" }, "Connect a BRC-100 wallet to see your skeins, create one here, and manage them. Your locators (which skeins you keep, and where) are outputs in your wallet.")));
-    return;
-  }
+  document.body.classList.toggle("out", !state.wallet);
+  m.classList.toggle("landing", !state.wallet);
+  if (!state.wallet) return landing(m);
   try {
     if (parts[0] === "inbox") return await inboxPage(m);
     if (parts[0] !== "s") return await home(m);
@@ -601,6 +600,24 @@ async function route() {
   } catch (e) {
     m.append(h("p", { class: "bad", id: "error" }, errText(e)));
   }
+}
+
+/** The page with no wallet connected: what a skein is, and Create a skein (the header's Connect). */
+function landing(m) {
+  const block = (tag, title, text) => h("div", { class: "how-block" }, h("div", { class: "eyebrow" }, tag), h("h2", {}, title), h("p", {}, text));
+  m.append(
+    h("section", { class: "hero wrap" },
+      h("div", { class: "hero-text" },
+        h("h1", {}, "A skein, a handle, a mailbox."),
+        h("p", { class: "hero-lead" }, "Start a skein: it runs the apps you install, on keys only you hold. From it, register ", h("span", { class: "handle-sample" }, "@you@skein.nexus"), ". Your wallet keeps the certificate, and your skein's mailbox takes messages and payments from anyone who knows the handle."),
+        h("div", { class: "hero-actions" }, h("button", { type: "button", class: "go big", id: "hero-create", onclick: () => $("connect").click() }, "Create a skein")),
+        h("div", { class: "hero-note" }, "Works with any BRC-100 wallet · no email, no password")),
+      h("div", { class: "hero-mark" }, h("img", { src: "skein-mark.jpg", alt: "The skein mark: a knot of soft periwinkle yarn, densest at the centre", width: "360", height: "360" }))),
+    h("section", { class: "how", id: "how", "aria-label": "How it works" },
+      h("div", { class: "how-grid wrap" },
+        block("SKEIN", "Apps that run on your keys", "Install the shell, chat, an overlay, a static site. Every change is a signed entry in a log you can read, replay and move to another host."),
+        block("HANDLE", "A name anyone can resolve", "Registered from your skein: the host binds the handle to your identity key and issues the certificate into your wallet. Any BRC-169 client turns the handle back into your key and your mailbox."),
+        block("MAILBOX", "Messages and payments, kept for you", "The mailbox app on your skein holds your mail until your wallet picks it up. Payments arrive the same way and land in the wallet when you open it."))));
 }
 
 async function home(m) {
@@ -1126,6 +1143,7 @@ async function inboxPage(m) {
 
 async function start() {
   try { state.catalog = (await (await fetch("catalog.json")).json()).apps ?? []; } catch { state.catalog = []; }
+  $("nav-how").onclick = (e) => { e.preventDefault(); document.getElementById("how")?.scrollIntoView({ behavior: "smooth" }); };
   $("connect").onclick = async () => { try { await useWallet(); route(); } catch (e) { $("who").textContent = errText(e); } };
   window.addEventListener("hashchange", () => route());
   try { await useWallet(); } catch (e) { $("who").textContent = `no wallet connected (${errText(e)})`; }

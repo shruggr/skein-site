@@ -45,7 +45,9 @@ nav.primary a[aria-current=page]{color:var(--fg);border-bottom-color:var(--rust)
 main{max-width:var(--wide);width:100%;margin:0 auto;padding:40px var(--gutter) 64px;display:flex;flex-direction:column;gap:12px;flex:1}
 main>.sec+.sec,main>.sec+.find{margin-top:36px}
 footer{border-top:1px solid var(--line)}
-.foot{max-width:var(--wide);margin:0 auto;padding:18px var(--gutter);font-size:13px;color:var(--mut)}
+.foot{max-width:var(--wide);margin:0 auto;padding:18px var(--gutter);font-size:13px;color:var(--mut);display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px 20px}
+.foot-links{display:flex;gap:20px}
+.foot-links a{text-decoration:none;min-height:32px;display:inline-flex;align-items:center}
 h1{font-family:var(--display);font-weight:300;font-size:36px;letter-spacing:-.02em;line-height:1.15;margin:0}
 h2{font-family:var(--display);font-weight:300;font-size:28px;letter-spacing:-.01em;line-height:1.2;margin:18px 0 4px}
 .sec{display:flex;flex-direction:column;gap:18px}
@@ -149,6 +151,31 @@ ul.plain{list-style:none;padding:0;margin:4px 0}ul.plain li{margin:3px 0;overflo
 details summary{cursor:pointer}
 strong{font-weight:600}
 
+/* ---- the page with no wallet: header nav, hero, how it works */
+body.out #nav-skeins,body.out #nav-inbox,body:not(.out) #nav-how{display:none}
+main.landing{max-width:none;padding:0;gap:0}
+.wrap{max-width:var(--wide);width:100%;margin:0 auto;padding-left:var(--gutter);padding-right:var(--gutter)}
+.hero{padding-top:72px;padding-bottom:56px;display:flex;flex-wrap:wrap;align-items:center;gap:48px}
+.hero-text{flex:1 1 480px;min-width:0;display:flex;flex-direction:column;gap:24px}
+.hero h1{font-size:64px;line-height:1.05}
+.hero-lead{margin:0;font-size:19px;line-height:1.55;color:var(--fg2);max-width:52ch}
+.handle-sample{font-family:var(--mono);color:var(--acc)}
+.hero-actions{display:flex;flex-wrap:wrap;gap:12px}
+button.big{font-size:16px;min-height:44px;padding:12px 22px}
+.hero-note{font-family:var(--mono);font-size:12px;color:var(--mut)}
+.hero-mark{flex:0 1 400px;min-width:0;display:flex;justify-content:center}
+.hero-mark img{width:360px;max-width:100%;height:auto;display:block;mix-blend-mode:lighten}
+.how{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--panel);scroll-margin-top:16px}
+.how-grid{padding-top:56px;padding-bottom:56px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:40px}
+.how-block{display:flex;flex-direction:column;gap:10px}
+.eyebrow{font-family:var(--mono);font-size:12px;color:var(--acc);letter-spacing:.08em}
+.how-block h2{margin:0;font-weight:400;font-size:26px}
+.how-block p{margin:0;font-size:15px;line-height:1.55;color:var(--fg2)}
+main.landing+footer{border-top:0}
+@media (max-width:860px){
+  .how-grid{grid-template-columns:minmax(0,1fr);gap:32px}
+}
+
 /* ---- phone width */
 @media (max-width:640px){
   :root{--gutter:16px}
@@ -159,4 +186,10 @@ strong{font-weight:600}
   h1{font-size:30px}
   h2{font-size:24px}
   .card{padding:16px}
+  .hero{padding-top:32px;padding-bottom:40px;gap:28px}
+  .hero h1{font-size:40px}
+  .hero-lead{font-size:17px}
+  .hero-mark{flex-basis:100%}
+  .hero-mark img{width:200px}
+  .how-grid{padding-top:40px;padding-bottom:40px}
 }
