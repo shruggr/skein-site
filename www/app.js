@@ -551,7 +551,7 @@ function searchSection(m, host) {
 
 /**
  * Register `name` on this page's host for your key: the host's
- * POST /account/register with your signature over `register <name>@<domain>`; it
+ * POST /account/register over your wallet's session, with your signature over `register <name>@<domain>`; it
  * creates your mailbox instance and answers with the handle certificate,
  * which your wallet keeps (`acquireCertificate`, direct) unless it holds it.
  */
@@ -559,7 +559,8 @@ async function registerHandle(name) {
   const host = await hostInfo();
   if (!host) throw new Error("this page's skein is not on a skein host");
   const { signature } = await state.wallet.createSignature({ protocolID: REGISTER, keyID: name, counterparty: "anyone", data: Utils.toArray(`register ${name}@${host.domain.toLowerCase()}`, "utf8") });
-  const r = await fetch(`${host.origin}/account/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: name, identityKey: state.me, signature: toHex(signature) }) });
+  // shruggr/skein#135: a registration is a write, so a signed request — over your wallet's BRC-104 session with the host's origin (its host skein).
+  const r = await boxFor(host.origin).af.fetch(`${host.origin}/account/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: name, identityKey: state.me, signature: toHex(signature) }) });
   let v = {};
   try { v = await r.json(); } catch { /* the status says it */ }
   if (r.status !== 200) throw new Error(v.error ?? `HTTP ${r.status}`);
