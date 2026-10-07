@@ -1,7 +1,7 @@
 {
   "kind": "app",
   "name": "site",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "programs": {
     "site": "bin/site.wasm"
   },
@@ -30,14 +30,19 @@
     }
   ],
   "requires": [],
-  "reads": [
+  "filters": {
+    "get": "site.get"
+  },
+  "routes": [
     {
+      "transport": "http",
       "address": "/",
       "prefix": true,
-      "program": "site",
-      "fn": "get",
+      "filters": [
+        "get"
+      ],
       "root": "www"
     }
   ],
-  "description": "The management site of a skein (shruggr/skein#92, #125): the page under /site/, served from this app's own tree (www/) by its one read (shruggr/skein#135: a call — anyone, signed or not, nothing logged). The owner may also add a read putting it at the instance's root (README)."
+  "description": "The management site of a skein (shruggr/skein#92, #125, #143): the page under /site/, served from this app's own tree (www/) by a read route whose filter `get` answers (anyone, signed or not, nothing logged). Root may add a route of its own putting it at the instance's root ({transport: \"http\", address: \"/\", prefix: true, filters: [\"site.get\"], root: \"www\"}: the default image has it)."
 }

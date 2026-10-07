@@ -1,6 +1,6 @@
 // The management site (shruggr/skein#92), an app since #125: installed in a
-// skein, it serves these files at /site/ (and at / when the owner adds that
-// row); what makes the page yours is the wallet in the browser. Everything it shows of a skein it reads from
+// skein, it serves these files at /site/ (and at / by root's own route, which
+// the default image has); what makes the page yours is the wallet in the browser. Everything it shows of a skein it reads from
 // that skein, on a BRC-104 session signed by your wallet; everything it
 // changes there is a message from you to that skein. The skein that served
 // the page is never in the path for another skein's data.
@@ -9,15 +9,16 @@
 //                            handles (certificates in your wallet), register one on this page's host,
 //                            each one's profile (#104: name and avatar, signed by your wallet); find a
 //                            handle on this page's host (BRC-169 search)
-//   #/s/<identity>           a skein, its Apps tab: setup (the image's apps' rows from you, sent by the page),
-//                            installed (upgrade, uninstall), add from the catalog or a repository
-//                            (GitHub's versions resolved to a commit), the review; the skeins
-//                            created there (a host skein's)
-//   #/s/<identity>/app/<name>  one app: its rows (who can reach it): remove one, add one
+//   #/s/<identity>           a skein, its Apps tab: installed (upgrade, uninstall), add from the
+//                            catalog or a repository (GitHub's versions resolved to a commit), the
+//                            review; the skeins created there (a host skein's)
+//   #/s/<identity>/app/<name>  one app: its routes (transport, address, filters, handler) and its
+//                            roles (root, user and the app's own), each role's holders from the
+//                            kernel's head `grants`, granted and revoked by root (shruggr/skein#143)
 //   #/s/<identity>/peers     its Contacts (the address book): add by handle, or by key and URL
-//   #/s/<identity>/overview  owner, handle, counts, identity
-//   #/s/<identity>/log, /threads, /thread/<cid>, /record/<cid>, /edges/<cid>, /dispatch, /heads
-//                            the explorer: the skein's own reads (/explore, its owner's)
+//   #/s/<identity>/overview  root, handle, counts, identity
+//   #/s/<identity>/log, /threads, /thread/<cid>, /record/<cid>, /edges/<cid>, /routes, /heads
+//                            the explorer: the skein's own reads (/explore, root's)
 //   #/inbox                  the Inbox: a mailbox's box listed (@bsv/message-box-client), and its
 //                            metanet_inbox synced into your wallet (@1sat/actions' syncMetanetInbox);
 //                            the mailbox your first handle resolves to, unless you typed another
@@ -26,10 +27,10 @@
 // (createWebWallet, webwallet.js) instead of connecting one; &services=<url>
 // points that wallet at a 1sat services endpoint.
 
-import { appRecordIn, Certificate, chunk, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, senderText, signClaim, syncMetanetInbox, Utils, WalletClient, wiring } from "./lib.js";
+import { appRecordIn, Certificate, chunk, CID, connectWallet, createContext, dagJson, decodeProfile, describe, dispatchOrigin, encodeProfile, fold, formatOrdinalOutpoint, Hash, LockingScript, lookup, MasterCertificate, MessageBoxClient, outpointFromBytes, outpointToBytes, parseTree, planInstall, planUninstall, ProtoWallet, PushDrop, RawBox, readStoredApp, rowKey, sendInstall, sendUninstall, signClaim, syncMetanetInbox, Utils, WalletClient, wiring } from "./lib.js";
 
 const q = new URLSearchParams(location.search);
-/** The skein that served this page: its base URL (the page is its `/site/`, or its `/` by the owner's row). */
+/** The skein that served this page: its base URL (the page is its `/site/`, or its `/` by root's route). */
 const here = new URL(".", location.href).href.replace(/\/+$/, "").replace(/\/site$/, "");
 /** Locator tokens: PushDrop outputs in this basket, fields [identity (33 bytes), url, handle]. */
 const BASKET = "skein-locators";
@@ -101,7 +102,7 @@ function identicon(key, size = 28, cls = "") {
   return svg;
 }
 
-/** The inspect icon (a list and a magnifier), for the link to a skein's log, threads and dispatch table. */
+/** The inspect icon (a list and a magnifier), for the link to a skein's log, threads and routes. */
 function inspectIcon() {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
@@ -113,7 +114,7 @@ function inspectIcon() {
   }
   return svg;
 }
-const inspectLink = (identity) => h("a", { class: "icon-btn", href: `#/s/${identity}/log`, "aria-label": "Inspect: log, threads, dispatch table, heads", title: "Inspect: log, threads, dispatch table, heads" }, inspectIcon());
+const inspectLink = (identity) => h("a", { class: "icon-btn", href: `#/s/${identity}/log`, "aria-label": "Inspect: log, threads, routes, heads", title: "Inspect: log, threads, routes, heads" }, inspectIcon());
 const errText = (e) => (e instanceof Error ? e.message : String(e));
 
 /** The copy icon (two sheets). */
@@ -340,7 +341,7 @@ function boxFor(url) {
 }
 
 class ReadError extends Error {
-  constructor(status, text) { super(status === 403 ? "your key may not read this skein: its explorer is its owner's" : `HTTP ${status} ${text}`); this.status = status; }
+  constructor(status, text) { super(status === 403 ? "your key may not read this skein: its explorer is root's" : `HTTP ${status} ${text}`); this.status = status; }
 }
 
 class Skein {
@@ -377,8 +378,9 @@ class Skein {
   /**
    * The instance as the install plan reads it (skein src/host/plan.ts
    * InstanceView), from the explorer: heads, the genesis (identity,
-   * programs, owner), the claim, the address book, the dispatch table, and
-   * the store by CID.
+   * programs), the address book, the route table, the grants (the kernel's
+   * head `grants`, #143: `{kind: "grants", roles: {<role>: [<key>…]}}`; its
+   * `root` holders: `roots`, hex), and the store by CID.
    */
   async view() {
     const top = await this.read("");
@@ -386,7 +388,8 @@ class Skein {
     const head = (name) => heads.find((x) => x.name === name)?.root;
     const first = (await this.read("/log?before=1&limit=1"))?.entries?.[0]?.record;
     const genesis = first?.genesis ? await this.record(first.genesis) : {};
-    const claim = head("claim") ? await this.record(head("claim")) : undefined;
+    const g = head("grants") ? await this.record(head("grants")) : undefined;
+    const grants = g?.kind === "grants" ? g : { kind: "grants", roles: {} };
     const keyHex = (k) => (k instanceof Uint8Array ? toHex(k) : typeof k === "string" ? k : "");
     const book = [];
     if (head("peers")) {
@@ -406,7 +409,7 @@ class Skein {
     return {
       store, heads, dispatch, addressBook: book, top,
       identity: keyHex(genesis.identity), programs: genesis.programs ?? {},
-      owner: genesis.owner !== undefined ? keyHex(genesis.owner) : keyHex(claim?.owner),
+      grants, roots: holdersOf(grants, "root"),
     };
   }
 
@@ -728,7 +731,7 @@ async function route() {
     else if (page === "thread") await threadPage(m, sk, parts[3]);
     else if (page === "record") await recordPage(m, sk, parts[3], params.get("path") ?? "");
     else if (page === "edges") await edgesPage(m, sk, parts[3]);
-    else if (page === "dispatch") await dispatchPage(m, sk);
+    else if (page === "routes" || page === "dispatch") await routesPage(m, sk);
     else m.append(h("p", { class: "bad" }, `no page ${page}`));
   } catch (e) {
     m.append(h("p", { class: "bad", id: "error" }, errText(e)));
@@ -819,7 +822,7 @@ async function home(m) {
     busy(true);
     try {
       status(made, `asking ${here} to create ${handle}`);
-      // #127: the new skein's owner is the sender of its claim; your wallet signs it now (naming no recipient), the host forwards it.
+      // #127, #143: the new skein's root is the sender of its claim; your wallet signs it now (naming no recipient), the host forwards it.
       const claim = await signClaim(state.wallet);
       const r = await boxFor(here).af.fetch(`${here}/onboard/call`, { method: "POST", headers: { "content-type": "application/json" }, body: new TextDecoder().decode(dagJson.encode({ fn: "onboard.create", args: { handle, claim } })) });
       const text = await r.text();
@@ -915,7 +918,7 @@ function registerCard(host) {
     st);
 }
 
-const EXPLORER = ["log", "threads", "dispatch", "heads", "thread", "record", "edges"];
+const EXPLORER = ["log", "threads", "routes", "dispatch", "heads", "thread", "record", "edges"];
 /** The apps a skein of the default image is born with (shruggr/skein#141): marked, never uninstalled from here. */
 const IMAGE_APPS = ["chain", "git", "site"];
 
@@ -933,7 +936,7 @@ function skeinHeader(sk, page) {
         h("a", { class: "url", href: `${sk.loc.url}/` }, sk.loc.url)),
       inspectLink(id)),
     h("nav", { class: "tabs", "aria-label": "This skein" }, tab("", "Apps"), tab("peers", "Contacts"), tab("overview", "Overview")),
-    EXPLORER.includes(page) ? h("nav", { class: "sublinks small", "aria-label": "Inspect" }, sub("log", "log"), sub("threads", "threads"), sub("dispatch", "dispatch table"), sub("heads", "heads")) : "");
+    EXPLORER.includes(page) ? h("nav", { class: "sublinks small", "aria-label": "Inspect" }, sub("log", "log"), sub("threads", "threads"), sub("routes", "routes"), sub("heads", "heads")) : "");
 }
 
 /** A value as the explorer gives it, its links clickable. */
@@ -991,14 +994,16 @@ function splitHandle(text) {
   return at > 0 ? { handle: t.slice(0, at), domain: t.slice(at + 1) } : { handle: t };
 }
 
-/** Who a row's sender is, in plain words: anyone, you, this skein, a provider, a contact, or a key. */
-function senderWords(sender, view) {
-  if (sender === undefined || sender === "*") return "anyone";
-  if (sender === "event") return "the host's events";
-  if (sender === "session") return "anyone signed in";
-  const k = keyText(sender);
-  if (k === state.me) return "you";
-  if (k === view.owner) return "the owner";
+/** The holders of `role` (its full name: root, <app>.<role>) in a grants record, as hex keys. */
+const holdersOf = (grants, role) => (grants?.roles?.[role] ?? []).map((k) => keyText(k));
+
+/** Whether your key holds root in the skein the view is of (#143: root passes every check). */
+const isRoot = (view) => !!state.me && view.roots.includes(state.me);
+
+/** Who a key is, in plain words: you, this skein, a provider, a contact, or the key. */
+function keyWords(key, view) {
+  const k = keyText(key);
+  if (k === state.me) return h("span", {}, "you ", idView(k, { n: 4, label: "identity key" }));
   if (k === view.identity) return "this skein";
   const e = view.addressBook.find((x) => x.key === k);
   if (e?.transport === "local") return `the ${e.address} provider`;
@@ -1006,10 +1011,10 @@ function senderWords(sender, view) {
   return h("span", {}, "the key ", idView(k, { label: "identity key" }));
 }
 
-/** Where a row takes messages: a box, an http path (and below it), a libp2p topic. */
-const whereWords = (r) => (r.transport === "mailbox" ? `box ${r.address}` : r.transport === "http" ? `${r.address}${r.prefix ? " and below" : ""}` : `${r.transport} ${r.address}`);
+/** Where a route takes requests: a box, an event box, an http path (and below it), a libp2p topic. */
+const whereWords = (r) => (r.transport === "mailbox" ? `box ${r.address}` : r.transport === "event" ? `events in box ${r.address}` : r.transport === "http" ? `${r.address}${r.prefix ? " and below" : ""}` : `${r.transport} ${r.address}`);
 
-/** The role (the app's name for a program) a row's program is, or a short CID, or kernel. */
+/** The role (the app's name for a program) a route's program is, or a short CID, or kernel. */
 function roleOf(record, program) {
   if (program === "kernel") return "kernel";
   const c = CID.asCID(program);
@@ -1017,181 +1022,28 @@ function roleOf(record, program) {
   return role ?? (c ? short(c.toString(), 8) : String(program));
 }
 
-/** A row's settings beyond its key, program and fn (filter, read, …), as text. */
+/** A route's settings beyond its key, filters, program and fn (root, index, …), as text. */
 function settingsText(r) {
-  const core = new Set(["transport", "address", "prefix", "sender", "program", "fn", "optional", "app"]);
+  const core = new Set(["transport", "address", "prefix", "filters", "program", "fn", "handler", "app"]);
   return Object.entries(r).filter(([k, v]) => !core.has(k) && v !== undefined).map(([k, v]) => `${k} ${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ");
 }
 
-/** One row in plain words: where, from whom, to which program. */
-function rowLine(r, view, record) {
+/** What a route runs: its handler (`<role>.<fn>`), or, with none, a read route whose filters answer. */
+const handlerText = (r, record) => (r.program === undefined ? "read: its filters answer, nothing logged" : `${roleOf(record, r.program)}${r.fn ? `.${r.fn}` : ""}`);
+
+/** A route's filters in plain words: the list, or none (anyone reaches the handler). */
+const filtersWords = (r) => (r.filters?.length ? `filters ${r.filters.join(", ")}` : r.transport === "mailbox" ? "the message's sender" : "no filter: anyone");
+
+/** One route in plain words: where, through which filters, to what. */
+function routeLine(r, record) {
   const set = settingsText(r);
   return h("span", { class: "row-line" },
     h("span", { class: "row-where" }, whereWords(r)),
-    h("span", { class: "row-who" }, "from ", senderWords(r.sender, view)),
-    h("span", { class: "row-to mut" }, `→ ${roleOf(record, r.program)}${r.fn ? `.${r.fn}` : ""}${set ? ` · ${set}` : ""}`));
-}
-
-/**
- * Setup: for each installed app, the rows its record asks for from the
- * owner (`$owner`, resolved: the claimed key) that the dispatch table lacks
- * — an image installs its apps before the claim and leaves those out. The
- * rows are the install's own (skein's `wiring`, the builder planInstall
- * resolves the same record with: installing the app again from its tree
- * sends exactly these), compared by the kernel's row key. Only when the
- * connected wallet is the owner; nothing when the skein is not claimed.
- */
-function setupGaps(view, apps) {
-  if (!view.owner || view.owner !== state.me) return [];
-  const have = new Set(view.dispatch.map((r) => rowKey(r)));
-  const out = [];
-  for (const a of apps) {
-    let want;
-    try { want = wiring(a.record, view); } catch { continue; }
-    const missing = want.filter((w) => w.op === "add" && keyText(w.row.sender) === view.owner && !have.has(rowKey(w.row)));
-    if (missing.length) out.push({ app: a.record.name, record: a.record, missing });
-  }
-  return out;
+    h("span", { class: "row-who" }, filtersWords(r)),
+    h("span", { class: "row-to mut" }, `→ ${handlerText(r, record)}${set ? ` · ${set}` : ""}`));
 }
 
 const listWords = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
-
-/**
- * The automatic setup (0.8.1): on the owner's first visit to a skein's Apps
- * tab in a page load, the missing rows are sent by the page itself, one
- * `dispatch` message each (sendInstall with nothing but the rows: no
- * objects, no head, no start), then the table read until it shows them.
- * One run per skein per page load; a failure waits for Try again. What was
- * added is kept in localStorage (per skein) until its card is dismissed.
- * setupRuns: identity → {phase: running | done | failed, names, added, error}.
- */
-const setupRuns = new Map();
-const setupSlots = new Map();
-const setupStoreKey = (id) => `skein-site.setup.${id}`;
-function setupSaved(id) {
-  try { const v = JSON.parse(localStorage.getItem(setupStoreKey(id)) ?? "null"); return v && Array.isArray(v.added) ? v : undefined; } catch { return undefined; }
-}
-function setupSave(id, v) {
-  try { localStorage.setItem(setupStoreKey(id), JSON.stringify(v)); } catch { /* kept for this page load only */ }
-}
-
-/** A row as the success card says it, kept as plain data (localStorage): where, from whom, to which program, its settings. */
-const setupLine = (r, record) => ({ where: whereWords(r), sender: keyText(r.sender), to: `${roleOf(record, r.program)}${r.fn ? `.${r.fn}` : ""}`, set: settingsText(r) });
-
-/** Start (or, after a failure, start again) the setup of `sk`; `first`: the view and gaps the Apps tab just read. */
-function runSetup(sk, first) {
-  const id = sk.loc.identity;
-  const run = setupRuns.get(id) ?? { added: [] };
-  if (run.phase === "running") return;
-  run.phase = "running";
-  run.error = undefined;
-  if (first) run.names = first.gaps.map((g) => g.app);
-  setupRuns.set(id, run);
-  paintSetup(id);
-  (async () => {
-    let gaps = first?.gaps;
-    if (!gaps) {
-      sk.records.clear();
-      const view = await sk.view();
-      gaps = setupGaps(view, await appsIn(sk, view));
-      if (gaps.length) run.names = gaps.map((g) => g.app);
-    }
-    const send = async (box, body) => await sk.send(box, body);
-    const keys = [];
-    for (const g of gaps) {
-      for (const w of g.missing) {
-        await sendInstall({ app: g.app, records: [], heads: [], rows: [w] }, send);
-        keys.push(rowKey(w.row));
-        let entry = run.added.find((x) => x.app === g.app);
-        if (!entry) run.added.push(entry = { app: g.app, rows: [] });
-        entry.rows.push(setupLine(w.row, g.record));
-      }
-    }
-    if (keys.length) {
-      await until(async () => { sk.records.clear(); const v = await sk.view(); const have = new Set(v.dispatch.map((r) => rowKey(r))); return keys.every((k) => have.has(k)); });
-    }
-  })().then(() => {
-    run.phase = "done";
-    if (run.added.length) setupSave(id, { added: run.added, dismissed: false });
-    paintSetup(id);
-  }, (e) => {
-    run.phase = "failed";
-    run.error = errText(e);
-    paintSetup(id);
-  });
-}
-
-/** The setup's place on the Apps tab: the running card, the failure with Try again, or what was added (until dismissed). */
-function setupSlot(sk) {
-  const id = sk.loc.identity;
-  const el = h("div", { class: "setup-slot", id: "setup-slot" });
-  el.sk = sk;
-  if (!setupSlots.has(id)) setupSlots.set(id, new Set());
-  setupSlots.get(id).add(el);
-  paintSetup(id);
-  return el;
-}
-
-function paintSetup(id) {
-  const slots = setupSlots.get(id);
-  if (!slots) return;
-  for (const el of slots) {
-    if (!el.isConnected && el.dataset.painted) { slots.delete(el); continue; }
-    el.dataset.painted = "1";
-    el.replaceChildren(setupCard(el.sk, setupRuns.get(id)));
-  }
-}
-
-function setupCard(sk, run) {
-  const id = sk.loc.identity;
-  const names = listWords(run?.names ?? []);
-  if (run?.phase === "running") {
-    return h("section", { class: "card setup setup-running", id: "setup", role: "status", "aria-live": "polite" },
-      h("div", { class: "waiting" }, h("img", { src: "skein-mark.jpg", alt: "", width: "22", height: "22" }),
-        h("span", { class: "waiting-text" }, `Setting up ${names} for your key `, idView(state.me, { n: 4, label: "identity key" }))),
-      h("p", { class: "small mut" }, "Adding the rows that let you reach them. Your wallet may ask you to sign."));
-  }
-  if (run?.phase === "failed") {
-    return h("section", { class: "card setup setup-failed", id: "setup" },
-      h("div", { class: "eyebrow" }, "SETUP"),
-      h("h2", { class: "card-h" }, `Setting up ${names} did not finish`),
-      h("p", { class: "bad", id: "setup-error" }, run.error),
-      run.added.length ? setupAdded(run.added, "Added so far:") : "",
-      h("div", { class: "actions" }, h("button", { type: "button", class: "go", id: "setup-retry", onclick: () => runSetup(sk) }, "Try again")));
-  }
-  const kept = run?.phase === "done" ? { added: run.added, dismissed: !!run.dismissed || !!setupSaved(id)?.dismissed } : setupSaved(id);
-  if (!kept || kept.dismissed || !kept.added.length) return "";
-  const apps = kept.added.map((x) => x.app);
-  const close = h("button", { type: "button", class: "quiet setup-close", id: "setup-dismiss", "aria-label": "Dismiss", title: "Dismiss" }, "✕");
-  close.onclick = () => {
-    if (run) run.dismissed = true;
-    setupSave(id, { added: kept.added, dismissed: true });
-    paintSetup(id);
-  };
-  return h("section", { class: "card setup setup-done", id: "setup-done" },
-    h("div", { class: "setup-top" }, h("div", { class: "eyebrow ok" }, "SET UP"), close),
-    h("h2", { class: "card-h" }, `${listWords(apps)} ${apps.length === 1 ? "is" : "are"} set up for you`),
-    setupAdded(kept.added, "Added, each a row from you:"));
-}
-
-/** What a setup added, per app, each row in plain words (the key shown, copyable, on the first). */
-function setupAdded(added, lead) {
-  let first = true;
-  const who = (k) => {
-    if (k !== state.me) return h("span", {}, "from ", idView(k, { n: 4, label: "identity key" }));
-    if (!first) return "from you";
-    first = false;
-    return h("span", {}, "from you (", idView(k, { n: 4, label: "identity key" }), ")");
-  };
-  return h("div", { class: "setup-added" },
-    h("p", { class: "small mut" }, lead),
-    added.map((a) => h("div", { class: "setup-app", "data-setup-app": a.app },
-      h("strong", {}, a.app),
-      h("ul", { class: "plain setup-rows" }, a.rows.map((r) => h("li", {}, h("span", { class: "row-line" },
-        h("span", { class: "row-where" }, r.where),
-        h("span", { class: "row-who" }, who(r.sender)),
-        h("span", { class: "row-to mut" }, `→ ${r.to}${r.set ? ` · ${r.set}` : ""}`))))))));
-}
 
 // ---------------------------------------------------------------- the Apps tab
 
@@ -1307,12 +1159,7 @@ async function appsPage(m, sk) {
   const task = h("div", { class: "task", id: "task" }, ui.wait.el, ui.st, ui.prompt);
   const run = (e) => install(sk, e, ui);
 
-  // Setup: the rows from you the image's apps lack, sent by the page on your first visit (once per page load).
-  if (!setupRuns.has(id)) {
-    const gaps = setupGaps(view, apps);
-    if (gaps.length) runSetup(sk, { view, gaps });
-  }
-  m.append(setupSlot(sk), task);
+  m.append(task);
 
   // Installed: one card per app (a table, its rows laid out as cards: tr[data-app]).
   const sec = h("section", { class: "sec" }, h("h2", { class: "sec-title" }, "Installed"));
@@ -1354,7 +1201,7 @@ async function appsPage(m, sk) {
   }
 }
 
-/** An installed app's card: name, version, description; Permissions, Upgrade to the catalog's newer version, Uninstall (asks first). */
+/** An installed app's card: name, version, description; Roles, Upgrade to the catalog's newer version, Uninstall (asks first). */
 function appCard(sk, a, run) {
   const r = a.record;
   const core = IMAGE_APPS.includes(r.name);
@@ -1365,13 +1212,13 @@ function appCard(sk, a, run) {
     h("td", { class: "app-title" }, h("a", { class: "app-name", href: page }, r.name), h("span", { class: "ver" }, r.version), core ? h("span", { class: "tag" }, "from the image") : ""),
     h("td", { class: "app-desc", title: r.description ?? "" }, r.description ?? ""),
     h("td", { class: "actions" },
-      h("a", { class: "btn", href: page }, "Permissions"),
+      h("a", { class: "btn", href: page }, "Roles"),
       up ? h("button", { type: "button", class: "go", onclick: () => run(up) }, `Upgrade to ${up.version}`) : "",
       core ? "" : confirmAction({
         label: "Uninstall",
         question: async () => {
           const p = await planUninstall(r.name, await sk.view());
-          return `Uninstall ${r.name}? ${p.stop ? "It is stopped, then its" : "Its"} ${p.rows.length} ${p.rows.length === 1 ? "row is" : "rows are"}${p.reads ? " and its reads are" : ""} removed. Its data stays.`;
+          return `Uninstall ${r.name}? ${p.stop ? "It is stopped, then its" : "Its"} ${p.rows.length} ${p.rows.length === 1 ? "route is" : "routes are"} removed. Its data and its roles' grants stay.`;
         },
         yes: "Uninstall",
         run: (say) => uninstall(sk, r.name, say),
@@ -1390,6 +1237,8 @@ async function install(sk, e, ui) {
   ui.wait.el.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   try {
     const view = await sk.view();
+    // #143: installing is root's (every message it sends goes to a kernel admin box; the git app's call is gated by root).
+    if (!isRoot(view)) throw new Error("your key does not hold root in this skein: only root installs");
     const git = await appRecordIn(view, "git");
     let tree, app;
     if (!git) {
@@ -1401,12 +1250,6 @@ async function install(sk, e, ui) {
       tree = leaf.cid;
     } else {
       if (!/^[0-9a-fA-F]{40}$/.test(e.hash ?? "")) throw new Error("the hash is a commit id: 40 hex digits");
-      // The git app takes the owner's clone only through its row from the owner (the setup adds it on an image's skein).
-      if (!view.dispatch.some((r) => r.transport === "mailbox" && (r.address === "git" || r.address === "*") && (r.sender === "*" || keyText(r.sender) === state.me))) {
-        throw new Error(setupRuns.get(sk.loc.identity)?.phase === "running"
-          ? "the git app has no row from you yet: the page is adding it (setup, above); try again when it is done"
-          : "the git app has no row from you yet, so it cannot clone for you");
-      }
       step(`The git app is cloning ${e.url} at ${e.hash.slice(0, 12)}…`);
       ({ tree, app } = await sk.clone(e.url, e.hash));
     }
@@ -1414,24 +1257,27 @@ async function install(sk, e, ui) {
     const stored = await readStoredApp(view.store, tree);
     const plan = await planInstall(stored, view, { modules: { get: async () => undefined } });
     if (app && !plan.recordCid.equals(app)) throw new Error(`the app record rebuilt here (${plan.recordCid}) is not the git app's (${app})`);
+    let want = [], wantErr = "";
+    try { want = await wiring(plan.record, view); } catch (err) { wantErr = errText(err); }
     ui.wait.stop();
-    prompt.append(reviewCard(sk, plan, view, e, ui));
+    prompt.append(reviewCard(sk, plan, view, e, ui, want, wantErr));
     prompt.scrollIntoView?.({ behavior: "smooth", block: "start" });
   } catch (err) { ui.wait.stop(); status(st, errText(err), "bad"); }
 }
 
 /**
- * The review: what the plan sends, read from the plan itself — the rows
- * (who may reach the app, and where), its reads, what it needs and offers —
- * and describe()'s exact lines (#plan). Approve sends it (sendInstall),
- * the wait showing each step; then the page is read again.
+ * The review: what the plan sends, read from the plan itself — the routes
+ * (where requests go, through which filters, to which handler), the filters
+ * and roles it declares, what it needs and offers — and describe()'s exact
+ * lines (#plan). `want`: every route the record asks for (skein's `wiring`).
+ * The install grants nothing (#143: you are root); an app role is granted on
+ * the app's Roles page. Approve sends it (sendInstall), the wait showing each
+ * step; then the page is read again.
  */
-function reviewCard(sk, plan, view, e, ui) {
+function reviewCard(sk, plan, view, e, ui, want, wantErr) {
   const rec = plan.record;
   const again = plan.upgrade !== undefined && plan.upgrade === plan.version;
   const title = plan.upgrade === undefined ? `Install ${plan.app} ${plan.version}` : again ? `Install ${plan.app} ${plan.version} again` : `Upgrade ${plan.app} ${plan.upgrade} → ${plan.version}`;
-  let want = [];
-  try { want = wiring(rec, view); } catch { /* the plan's rows below say it */ }
   const adding = new Set(plan.rows.filter((r) => r.op === "add").map((r) => rowKey(r.row)));
   const removing = plan.rows.filter((r) => r.op === "remove");
   const fact = (term, ...dd) => [h("dt", {}, term), h("dd", {}, ...dd)];
@@ -1439,11 +1285,14 @@ function reviewCard(sk, plan, view, e, ui) {
   if (e.url && e.hash) facts.push(...fact("From", h("span", { class: "url-text" }, e.url), " at ", idView(e.hash, { label: "commit id" })));
   else if (e.image) facts.push(...fact("From", `this skein's image (${e.image})`));
   if (want.length) {
-    facts.push(...fact("Who can reach it", h("ul", { class: "plain review-rows" }, want.map((w) => h("li", {}, rowLine(w.row, view, rec),
+    facts.push(...fact("Routes", h("ul", { class: "plain review-rows", id: "review-routes" }, want.map((w) => h("li", {}, routeLine(w.row, rec),
       adding.has(rowKey(w.row)) ? h("span", { class: "tag new" }, "new") : h("span", { class: "tag" }, "already set"))))));
-  } else facts.push(...fact("Who can reach it", h("span", { class: "mut" }, "no one: it takes no messages")));
-  if (removing.length) facts.push(...fact("No longer", h("ul", { class: "plain review-rows" }, removing.map((r) => h("li", {}, rowLine(r.row, view, rec))))));
-  if (plan.reads?.length) facts.push(...fact("Reads", h("ul", { class: "plain review-rows" }, plan.reads.map((r) => h("li", {}, h("span", { class: "row-where" }, `${r.address}${r.prefix ? " and below" : ""}`), " ", h("span", { class: "mut" }, "anyone may read it; nothing is logged"))))));
+  } else facts.push(...fact("Routes", h("span", { class: "mut" }, wantErr || "none: nothing reaches it")));
+  if (removing.length) facts.push(...fact("No longer", h("ul", { class: "plain review-rows" }, removing.map((r) => h("li", {}, routeLine(r.row, rec))))));
+  const filters = Object.entries(rec.filters ?? {});
+  if (filters.length) facts.push(...fact("Filters", h("ul", { class: "plain review-rows", id: "review-filters" }, filters.map(([f, x]) => h("li", {}, h("span", { class: "row-where" }, `${rec.name}.${f}`), " ", h("span", { class: "mut" }, `→ ${x} · runs before anything is recorded; any route may list it`))))));
+  const roles = Object.entries(rec.roles ?? {});
+  if (roles.length) facts.push(...fact("Roles", h("ul", { class: "plain review-rows", id: "review-roles" }, roles.map(([r, fns]) => h("li", {}, h("span", { class: "row-where" }, roleName(rec.name, r)), " ", h("span", { class: "mut" }, `gates ${fns.join(", ")}${r === "user" ? " · any signed-in key" : r === "root" ? " · root only" : " · its holders (none until root grants it)"}`))))));
   if (plan.requires?.length) facts.push(...fact("Needs", plan.requires.join(", ")));
   if (rec.provides?.length) facts.push(...fact("Offers", h("ul", { class: "plain review-rows" }, rec.provides.map((p) => h("li", {}, h("span", { class: "row-where" }, p.interface), " ", h("span", { class: "mut" }, Object.keys(p.functions ?? {}).join(", ")))))));
   if (plan.start) facts.push(...fact("Starts", `a start message into box ${plan.app}`));
@@ -1472,7 +1321,7 @@ function reviewCard(sk, plan, view, e, ui) {
   return h("section", { class: "card review", id: "review", "aria-label": title },
     h("h2", { class: "card-h" }, title),
     rec.description ? h("p", { class: "help review-desc", title: rec.description }, rec.description) : "",
-    h("p", { class: "small mut" }, `Resolved against this skein. Approving sends these as messages from you.`),
+    h("p", { class: "small mut" }, `Resolved against this skein. Approving sends these as messages from you (root). The install grants no role: you are root.`),
     h("dl", { class: "facts" }, facts),
     h("details", { class: "exact", open: true }, h("summary", {}, "The exact messages"), h("pre", { id: "plan" }, describe(plan).join("\n"))),
     h("div", { class: "actions" }, go, no),
@@ -1485,7 +1334,7 @@ async function uninstall(sk, name, say) {
   const p = await planUninstall(name, await sk.view());
   say("Sending, signed by your wallet…");
   await sendUninstall(p, async (box, body) => await sk.send(box, body));
-  say(`Waiting for this skein to remove ${name}'s rows…`);
+  say(`Waiting for this skein to remove ${name}'s routes…`);
   await until(async () => { sk.records.clear(); const v = await sk.view(); return !v.dispatch.some((r) => r.app === name); });
   route();
 }
@@ -1499,24 +1348,21 @@ async function until(f, ms = 60_000) {
   }
 }
 
-// ---------------------------------------------------------------- one app: its rows
+// ---------------------------------------------------------------- one app: its routes and roles
+
+/** A role's full name (#143): root and user are themselves; an app's own is `<app>.<role>`. */
+const roleName = (app, role) => (role === "root" || role === "user" ? role : `${app}.${role}`);
 
 /**
- * A row change from you, as the install sends one: the row built by skein's
- * `wiring` (the manifest's form resolved against this skein: the address
- * under the app's, the sender's key, the role's program, `app`), sent by
- * sendInstall (an add) or sendUninstall (a remove) with nothing else in the
- * plan — one `dispatch` message `{op, row}`. Then the table read until it
- * shows the change.
+ * A grant from root (#143): the kernel's admin operation `grant` — `{op: "add" | "remove", role,
+ * principal}` in box `grant`, a message from you as every admin message is — then the head
+ * `grants` read until it shows the change.
  */
-async function sendRow(sk, record, rowOp, say) {
+async function sendGrant(sk, op, role, key, say) {
   say("Sending, signed by your wallet…");
-  const send = async (box, body) => await sk.send(box, body);
-  if (rowOp.op === "add") await sendInstall({ app: record.name, records: [], heads: [], rows: [rowOp] }, send);
-  else await sendUninstall({ app: record.name, record, rows: [rowOp] }, send);
-  say("Waiting for this skein's dispatch table to show it…");
-  const k = rowKey(rowOp.row);
-  await until(async () => { sk.records.clear(); const v = await sk.view(); return v.dispatch.some((r) => rowKey(r) === k) === (rowOp.op === "add"); });
+  await sk.send("grant", { op, role, principal: fromHex(key) });
+  say("Waiting for this skein's grants to show it…");
+  await until(async () => { sk.records.clear(); const v = await sk.view(); return holdersOf(v.grants, role).includes(key) === (op === "add"); });
   route();
 }
 
@@ -1529,7 +1375,7 @@ async function appPage(m, sk, name) {
   const a = apps.find((x) => x.record.name === name);
   if (!a) return m.append(h("p", { class: "bad" }, `No app named ${name} is installed here.`));
   const r = a.record;
-  const mine = view.owner === state.me;
+  const mine = isRoot(view);
 
   const fact = (term, ...dd) => [h("dt", {}, term), h("dd", {}, ...dd)];
   const facts = [
@@ -1538,134 +1384,108 @@ async function appPage(m, sk, name) {
     ...Object.entries(r.programs ?? {}).flatMap(([role, c]) => fact(`Program ${role}`, idView(String(c), { label: "program CID" }))),
     ...(r.requires?.length ? fact("Needs", r.requires.join(", ")) : []),
     ...(r.provides?.length ? fact("Offers", h("ul", { class: "plain review-rows" }, r.provides.map((p) => h("li", {}, h("span", { class: "row-where" }, p.interface), " ", h("span", { class: "mut" }, Object.keys(p.functions ?? {}).join(", ")))))) : []),
+    ...(Object.keys(r.filters ?? {}).length ? fact("Filters", h("ul", { class: "plain review-rows" }, Object.entries(r.filters).map(([f, x]) => h("li", {}, h("span", { class: "row-where" }, `${name}.${f}`), " ", h("span", { class: "mut" }, `→ ${x}`))))) : []),
   ];
   m.append(h("section", { class: "card app-detail" },
     h("div", { class: "app-title" }, h("h2", { class: "card-h app-name" }, r.name), h("span", { class: "ver" }, r.version), IMAGE_APPS.includes(r.name) ? h("span", { class: "tag" }, "from the image") : ""),
     r.description ? h("p", { class: "help" }, r.description) : "",
     h("dl", { class: "facts" }, facts)));
 
-  // Who can reach it: its rows in the table, the ones its manifest asks for that are missing, and Add a row.
-  let want = [];
-  let wantErr = "";
-  try { want = wiring(r, view); } catch (e) { wantErr = errText(e); }
+  m.append(rolesCard(sk, view, r, mine));
+
+  // Its routes: the table's (with `app` this app), and the ones its manifest asks for that are missing.
+  let want = [], wantErr = "";
+  try { want = await wiring(r, view); } catch (e) { wantErr = errText(e); }
   const asked = new Set(want.map((w) => rowKey(w.row)));
   const rows = view.dispatch.filter((x) => x.app === name);
   const have = new Set(rows.map((x) => rowKey(x)));
   const missing = want.filter((w) => !have.has(rowKey(w.row)));
-  const list = h("ul", { class: "plain perm-list", id: "app-rows" });
-  for (const row of rows) {
-    list.append(h("li", { class: "perm", "data-row": rowKey(row) },
-      rowLine(row, view, r),
-      asked.has(rowKey(row)) ? "" : h("span", { class: "tag" }, "not in its manifest"),
-      mine ? confirmAction({ label: "Remove", question: h("span", {}, "Remove this row? ", whereWords(row), " stops taking messages from ", senderWords(row.sender, view), "."), yes: "Remove", run: (say) => sendRow(sk, r, { op: "remove", row, label: senderText(row.sender) }, say) }) : ""));
-  }
-  for (const w of missing) {
-    list.append(h("li", { class: "perm missing" },
-      rowLine(w.row, view, r),
-      h("span", { class: "tag new" }, "missing"),
-      mine ? confirmAction({ label: "Add", cls: "", question: h("span", {}, "Add this row? ", whereWords(w.row), " takes messages from ", senderWords(w.row.sender, view), "."), yes: "Add", run: (say) => sendRow(sk, r, w, say) }) : ""));
-  }
-  if (!rows.length && !missing.length) list.append(h("li", { class: "mut" }, "No rows: no message reaches it."));
-  const sec = h("section", { class: "card" },
-    h("h2", { class: "card-h" }, "Who can reach it"),
-    h("p", { class: "help" }, `Each row lets a sender reach ${name} at a box or a path. The first row that matches wins. Installing ${name} again or upgrading it sets its rows back to what its manifest asks for.`),
-    wantErr ? h("p", { class: "small wait" }, `Its manifest's rows: ${wantErr}`) : "",
-    list);
-  m.append(sec);
-
-  // Its reads (shruggr/skein#135): served by a call, anyone, nothing logged.
-  const readsRoot = view.heads.find((x) => x.name === "reads")?.root;
-  const reads = readsRoot ? ((await sk.record(readsRoot))?.reads ?? []).filter((x) => x.app === name) : [];
-  if (reads.length) {
-    m.append(h("section", { class: "card" }, h("h2", { class: "card-h" }, "Reads"),
-      h("ul", { class: "plain perm-list" }, reads.map((x) => h("li", { class: "perm" }, h("span", { class: "row-line" }, h("span", { class: "row-where" }, `${x.address}${x.prefix ? " and below" : ""}`), h("span", { class: "row-who" }, "anyone may read it"), h("span", { class: "row-to mut" }, `→ ${roleOf(r, x.program)}.${x.fn} · nothing logged`)))))));
-  }
-
-  if (mine) m.append(addRowForm(sk, view, r));
+  const list = h("ul", { class: "plain perm-list", id: "app-routes" });
+  for (const row of rows) list.append(h("li", { class: "perm", "data-route": rowKey(row) }, routeLine(row, r), asked.has(rowKey(row)) ? "" : h("span", { class: "tag" }, "not in its manifest")));
+  for (const w of missing) list.append(h("li", { class: "perm missing", "data-route": rowKey(w.row) }, routeLine(w.row, r), h("span", { class: "tag new" }, "missing: install it again")));
+  if (!rows.length && !missing.length) list.append(h("li", { class: "mut" }, "No routes: nothing reaches it."));
+  m.append(h("section", { class: "card" },
+    h("h2", { class: "card-h" }, "Routes"),
+    h("p", { class: "help" }, `Where requests reach ${name}: each route's filters run first (kernel.brc104 checks the signed session and names who it is from); then, if a role gates the handler's function, the key must hold it. A route with no handler is a read: its filter answers and nothing is logged. Installing ${name} again or upgrading it sets its routes back to what its manifest asks for.`),
+    wantErr ? h("p", { class: "small wait" }, `Its manifest's routes: ${wantErr}`) : "",
+    list));
 }
 
 /**
- * Add a row to an app: a box or a path under the app's, a sender (you,
- * anyone, this skein, a key), one of its programs and a function, an optional
- * filter. Built as the manifest writes a row and resolved by skein's
- * `wiring`, so it is the row an install of that manifest would send.
+ * The app's roles (#143): root and user, then the app's own (`<app>.<role>`), each with the
+ * functions it gates (the app record's `roles`) and its holders (the head `grants`). Root grants
+ * and revokes root and the app's roles; `user` is any signed-in key and is never granted.
  */
-function addRowForm(sk, view, record) {
+function rolesCard(sk, view, record, mine) {
   const name = record.name;
-  const transport = h("select", { id: "row-transport", name: "transport" }, h("option", { value: "mailbox" }, "a box (messages)"), h("option", { value: "http" }, "an HTTP path"));
-  const address = h("input", { type: "text", id: "row-address", name: "address", placeholder: `empty: the box ${name}`, autocomplete: "off", spellcheck: "false" });
-  const prefix = h("input", { type: "checkbox", id: "row-prefix", name: "prefix" });
-  const prefixField = h("label", { class: "check", hidden: true }, prefix, " and every path below it");
-  const sender = h("select", { id: "row-sender", name: "sender" },
-    ...(view.owner ? [h("option", { value: "$owner" }, view.owner === state.me ? "you" : "the owner")] : []),
-    h("option", { value: "*" }, "anyone"), h("option", { value: "$self" }, "this skein"), h("option", { value: "key" }, "a key…"));
-  const key = h("input", { type: "text", id: "row-key", name: "key", placeholder: "identity key (66 hex)", autocomplete: "off", spellcheck: "false" });
-  const keyField = h("div", { class: "field", hidden: true }, h("label", { for: "row-key" }, "Their identity key"), key);
-  const roles = Object.keys(record.programs ?? {});
-  const program = h("select", { id: "row-program", name: "program" }, roles.map((x) => h("option", { value: x }, x)));
-  const fns = [...new Set((record.provides ?? []).flatMap((p) => Object.keys(p.functions ?? {})))];
-  const fn = h("input", { type: "text", id: "row-fn", name: "fn", placeholder: "optional for a box", list: "row-fns", autocomplete: "off", spellcheck: "false" });
-  const filter = h("select", { id: "row-filter", name: "filter" }, h("option", { value: "" }, "none"), h("option", { value: "beef" }, "beef (the transactions checked before the entry is written)"));
-  const preview = h("div", { class: "small mut", "aria-live": "polite" });
-  const st = h("div", { class: "status" });
-  const review = h("div", { class: "row-review" });
-  const sync = () => {
-    const http = transport.value === "http";
-    prefixField.hidden = !http;
-    address.placeholder = http ? "a path under /" + name + "/, e.g. call" : `empty: the box ${name}`;
-    fn.placeholder = http ? "required for a path" : "optional for a box";
-    keyField.hidden = sender.value !== "key";
-    review.replaceChildren();
-    status(st, "");
-    try { const op = build(); preview.replaceChildren("The row: ", rowLine(op.row, view, record)); } catch (e) { preview.textContent = address.value || key.value ? errText(e) : ""; }
+  const declared = record.roles ?? {};
+  const gates = (role) => declared[role] ?? [];
+  const own = Object.keys(declared).filter((x) => x !== "root" && x !== "user");
+  const list = h("ul", { class: "plain role-list", id: "app-roles" });
+  const holderList = (full) => {
+    const keys = holdersOf(view.grants, full);
+    const ul = h("ul", { class: "plain role-holders" });
+    for (const k of keys) {
+      const last = full === "root" && keys.length === 1;
+      ul.append(h("li", { class: "role-holder", "data-holder": k }, identicon(k, 20), keyWords(k, view),
+        mine && !last ? confirmAction({
+          label: "Revoke",
+          question: h("span", {}, `Revoke ${full} from `, keyWords(k, view), "?", full === "root" && k === state.me ? " You will no longer manage this skein." : ""),
+          yes: "Revoke",
+          run: (say) => sendGrant(sk, "remove", full, k, say),
+        }) : last ? h("span", { class: "small mut" }, "the only root holder") : ""));
+    }
+    if (!keys.length) ul.append(h("li", { class: "mut small" }, "No one holds it."));
+    return ul;
   };
-  const build = () => {
-    const http = transport.value === "http";
-    if (http && !address.value.trim()) throw new Error("a path is needed");
-    if (http && !fn.value.trim()) throw new Error("a path's row names its function");
-    let s = sender.value;
-    if (s === "key") { s = key.value.trim().toLowerCase(); if (!isKey(s)) throw new Error("the key is 33 bytes in hex (66 digits, 02 or 03 first)"); }
-    if (!roles.includes(program.value)) throw new Error(`${name} has no program to run`);
-    const row = { transport: transport.value, address: address.value.trim(), ...(http && prefix.checked ? { prefix: true } : {}), sender: s, program: program.value, ...(fn.value.trim() ? { fn: fn.value.trim() } : {}), ...(filter.value ? { filter: filter.value } : {}) };
-    const [op] = wiring({ ...record, dispatch: [row] }, view);
-    return op;
-  };
-  for (const x of [transport, address, prefix, sender, key, program, fn, filter]) x.addEventListener(x.tagName === "SELECT" || x.type === "checkbox" ? "change" : "input", sync);
-  const form = h("form", { class: "card add-row", id: "add-row", onsubmit: (ev) => {
+  const roleItem = (full, title, what, grantable) => h("li", { class: "role", "data-role": full },
+    h("div", { class: "role-top" }, h("strong", { class: "role-name" }, title), h("span", { class: "small mut" }, what)),
+    grantable ? holderList(full) : "",
+    grantable && mine ? grantForm(sk, view, full) : "");
+  const fnText = (fns) => (fns.length ? `gates ${fns.join(", ")}` : "");
+  list.append(roleItem("root", "root", ["passes every check: any function, any route, any grant", fnText(gates("root"))].filter(Boolean).join(" · "), true));
+  list.append(roleItem("user", "user", ["any signed-in key (a principal an identity filter named); never granted", fnText(gates("user")) || `gates none of ${name}'s functions`].join(" · "), false));
+  for (const r of own) list.append(roleItem(roleName(name, r), roleName(name, r), fnText(gates(r)) || "gates no function", true));
+  return h("section", { class: "card roles" },
+    h("h2", { class: "card-h" }, "Roles"),
+    h("p", { class: "help" }, mine
+      ? `Who may run ${name}'s gated functions. You hold root: you grant and revoke. A function no role lists is open to whatever its route's filters let through.`
+      : `Who may run ${name}'s gated functions. Only root grants and revokes; your key does not hold root here.`),
+    list);
+}
+
+/** Grant `role` to a key: yours, a contact's, or one typed; reviewed in place, then the grant message. */
+function grantForm(sk, view, role) {
+  const slug = role.replace(/[^a-z0-9]+/gi, "-");
+  const pick = h("select", { name: "who", id: `grant-who-${slug}`, "aria-label": `Grant ${role} to` },
+    h("option", { value: "" }, "Grant to…"),
+    ...view.addressBook.filter((e) => e.transport !== "local" && isKey(e.key)).map((e) => h("option", { value: e.key }, handleText(e) || short(e.key))),
+    h("option", { value: "key" }, "a key…"));
+  const key = h("input", { type: "text", name: "key", placeholder: "identity key (66 hex)", autocomplete: "off", spellcheck: "false", hidden: true, "aria-label": "Identity key" });
+  const st = h("span", { class: "status small" });
+  const review = h("div", { class: "grant-review" });
+  pick.onchange = () => { key.hidden = pick.value !== "key"; review.replaceChildren(); status(st, ""); };
+  const go = h("button", { type: "submit" }, "Review");
+  return h("form", { class: "row grant-form", "data-grant": role, onsubmit: (ev) => {
     ev.preventDefault();
     status(st, "");
-    let op;
-    try { op = build(); } catch (e) { return status(st, errText(e), "bad"); }
-    const k = rowKey(op.row);
-    const clash = view.dispatch.find((x) => rowKey(x) === k);
-    if (clash) return status(st, clash.app === name ? `${name} has that row already.` : `That box and sender are taken: ${clash.app ? `the ${clash.app} app` : "the genesis or the owner"} has the row.`, "bad");
+    review.replaceChildren();
+    const k = (pick.value === "key" ? key.value : pick.value).trim().toLowerCase();
+    if (!isKey(k)) return status(st, "the key is 33 bytes in hex (66 digits, 02 or 03 first)", "bad");
+    if (holdersOf(view.grants, role).includes(k)) return status(st, `that key holds ${role} already`, "bad");
     const w = waiter();
-    const yes = h("button", { type: "button", class: "go" }, "Add the row");
+    const yes = h("button", { type: "button", class: "go" }, `Grant ${role}`);
     const no = h("button", { type: "button", onclick: () => review.replaceChildren() }, "Cancel");
     const done = h("div", { class: "status" });
     yes.onclick = async () => {
       yes.disabled = no.disabled = true;
-      try { await sendRow(sk, record, op, w.say); } catch (e) { w.stop(); status(done, errText(e), "bad"); yes.disabled = no.disabled = false; }
+      try { await sendGrant(sk, "add", role, k, w.say); } catch (e) { w.stop(); status(done, errText(e), "bad"); yes.disabled = no.disabled = false; }
     };
-    review.replaceChildren(h("div", { class: "confirm-card" },
-      h("p", {}, "Send this to the skein's dispatch table, signed by you? ", rowLine(op.row, view, record)),
-      h("pre", {}, `dispatch add ${k} → ${op.role}${op.row.fn ? `.${op.row.fn}` : ""}${settingsText(op.row) ? ` (${settingsText(op.row)})` : ""}`),
+    review.append(h("div", { class: "confirm-card" },
+      h("p", {}, `Grant ${role} to `, keyWords(k, view), "? Signed by you.", role === "root" ? " Root passes every check: they could manage this skein as you do." : ""),
+      h("pre", {}, `grant ${JSON.stringify({ op: "add", role, principal: k })}`),
       h("div", { class: "actions" }, yes, no), w.el, done));
-  } },
-    h("h2", { class: "card-h" }, "Add a row"),
-    h("div", { class: "form-grid" },
-      h("div", { class: "field" }, h("label", { for: "row-transport" }, "Takes"), transport),
-      h("div", { class: "field" }, h("label", { for: "row-address" }, "Box or path"), address, prefixField),
-      h("div", { class: "field" }, h("label", { for: "row-sender" }, "From"), sender),
-      keyField,
-      h("div", { class: "field" }, h("label", { for: "row-program" }, "Program"), program),
-      h("div", { class: "field" }, h("label", { for: "row-fn" }, "Function"), fn, h("datalist", { id: "row-fns" }, fns.map((f) => h("option", { value: f })))),
-      h("div", { class: "field" }, h("label", { for: "row-filter" }, "Filter"), filter)),
-    preview,
-    h("div", { class: "actions" }, h("button", { type: "submit" }, "Review")),
-    st, review);
-  queueMicrotask(sync);
-  return form;
+  } }, pick, key, go, st, review);
 }
 
 // ---------------------------------------------------------------- the Overview tab
@@ -1675,9 +1495,7 @@ async function overviewPage(m, sk) {
   if (!got) return;
   const { view, apps } = got;
   const id = sk.loc.identity;
-  const mine = view.owner && view.owner === state.me;
-  const gaps = setupGaps(view, apps);
-  if (gaps.length) m.append(setupCard(sk, view, gaps));
+  const mine = isRoot(view);
 
   // The handle whose mailbox this skein is, if one of yours (state.handles).
   let handle;
@@ -1686,7 +1504,7 @@ async function overviewPage(m, sk) {
   const kids = view.heads.filter((x) => x.name.startsWith("onboard/instances/"));
   const tile = (label, value, sub, extra = {}) => h("div", { class: "card tile", ...extra }, h("span", { class: "tile-label" }, label), h("span", { class: "tile-value" }, value), sub ? h("span", { class: "tile-sub" }, sub) : "");
   m.append(h("section", { class: "tiles", id: "tiles" },
-    tile("Owner", mine ? "you" : view.owner ? idView(view.owner, { n: 4, label: "owner's key" }) : "not claimed", mine ? "claimed with your key" : view.owner ? "another key" : "its first claim owns it", { "data-tile": "owner" }),
+    tile("Root", mine ? (view.roots.length > 1 ? `you and ${view.roots.length - 1} more` : "you") : view.roots.length ? idView(view.roots[0], { n: 4, label: "root's key" }) : "not claimed", mine ? "your key holds root" : view.roots.length ? `${view.roots.length === 1 ? "another key" : `${view.roots.length} keys`}` : "its first claim is root", { "data-tile": "root" }),
     handle ? tile("Handle", `${handle.handle}@${handle.domain}`, "its mailbox runs here", { "data-tile": "handle" }) : "",
     tile("Apps", String(apps.length), h("a", { href: `#/s/${id}` }, "Manage apps"), { "data-tile": "apps" }),
     tile("Contacts", String(people.length), h("a", { href: `#/s/${id}/peers` }, "Address book"), { "data-tile": "contacts" }),
@@ -1698,9 +1516,9 @@ async function overviewPage(m, sk) {
     h("dl", { class: "facts" },
       ...fact("Identity key", idView(view.identity || id, { label: "identity key" })),
       ...fact("URL", h("a", { class: "url", href: `${sk.url}/` }, sk.url)),
-      ...(view.owner && !mine ? fact("Owner", idView(view.owner, { label: "owner's key" })) : []),
+      ...(view.roots.length ? fact("Root", h("ul", { class: "plain" }, view.roots.map((k) => h("li", {}, keyWords(k, view))))) : []),
       ...fact("Heads", h("a", { href: `#/s/${id}/heads` }, `${view.heads.length} heads`)),
-      ...fact("Dispatch table", h("a", { href: `#/s/${id}/dispatch` }, `${view.dispatch.length} rows`)))));
+      ...fact("Routes", h("a", { href: `#/s/${id}/routes` }, `${view.dispatch.length} routes`)))));
 }
 
 async function headsPage(m, sk) {
@@ -1764,7 +1582,7 @@ async function contactsPage(m, sk) {
   const services = view.addressBook.filter((e) => e.transport === "local");
   const rowOf = (e) => {
     const who = handleText(e);
-    const src = { genesis: "from its genesis", admin: "added by the owner", claim: "from the claim" }[e.source] ?? e.source ?? "";
+    const src = { genesis: "from its genesis", admin: "added by root", claim: "from the claim" }[e.source] ?? e.source ?? "";
     return h("li", { class: "contact", "data-peer": e.key },
       identicon(e.key, 40, "avatar-md"),
       h("span", { class: "contact-body" },
@@ -1774,7 +1592,7 @@ async function contactsPage(m, sk) {
       confirmAction({ label: "Remove", question: `Remove ${who || short(e.key)} from this skein's contacts?`, yes: "Remove", run: (say) => sendPeers(sk, { op: "remove", key: fromHex(e.key) }, e.key, say) }));
   };
   m.append(h("section", { class: "card contacts" },
-    h("div", { class: "contacts-head" }, h("h2", { class: "card-h" }, "Contacts"), h("p", { class: "small mut" }, "Who this skein can reach, and how. Only its owner's messages change the list.")),
+    h("div", { class: "contacts-head" }, h("h2", { class: "card-h" }, "Contacts"), h("p", { class: "small mut" }, "Who this skein can reach, and how. Only root's messages change the list.")),
     people.length ? h("ul", { class: "plain contact-list", id: "peers" }, people.map(rowOf)) : h("p", { class: "mut contacts-empty", id: "peers" }, "No contacts yet. Add one by handle above."),
     services.length ? h("details", { class: "services" }, h("summary", {}, `The host's services (${services.length})`), h("ul", { class: "plain contact-list" }, services.map(rowOf))) : ""));
 }
@@ -1895,11 +1713,25 @@ async function edgesPage(m, sk, cidText) {
     : h("p", { class: "mut" }, "Nothing."));
 }
 
-async function dispatchPage(m, sk) {
+/** The route table (#143): transport, address, filters, handler, and whose route it is. */
+async function routesPage(m, sk) {
   const view = await sk.view();
-  m.append(h("h2", {}, "The dispatch table, in order (first match wins)"), h("table", { id: "dispatch" }, h("tbody", {}, view.dispatch.map((r) =>
-    h("tr", {}, h("td", {}, r.transport), h("td", {}, `${r.address}${r.prefix ? "*" : ""}`), h("td", { class: "key" }, short(senderText(r.sender))),
-      h("td", {}, r.program === "kernel" ? `kernel ${r.fn ?? ""}` : [show(sk, r.program), r.fn ? ` .${r.fn}` : ""]), h("td", { class: "mut small" }, r.app ?? "genesis"))))));
+  const apps = await appsIn(sk, view);
+  const recordOf = (app) => apps.find((x) => x.record.name === app)?.record;
+  const handlerCell = (r) => {
+    if (r.program === undefined) return h("span", { class: "mut" }, "read: its filters answer");
+    if (r.program === "kernel") return `kernel ${r.fn ?? ""}`;
+    const rec = r.app && recordOf(r.app);
+    return rec ? `${roleOf(rec, r.program)}${r.fn ? `.${r.fn}` : ""}` : [show(sk, r.program), r.fn ? ` .${r.fn}` : ""];
+  };
+  m.append(h("h2", {}, "Routes"),
+    h("p", { class: "small mut" }, "An http request takes the route at its exact path, else the longest prefix; a message the route at its box. Its filters run in order before anything is recorded."),
+    h("table", { id: "routes" },
+      h("thead", {}, h("tr", {}, ["Transport", "Address", "Filters", "Handler", "Whose"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, view.dispatch.map((r) =>
+        h("tr", { "data-route": rowKey(r) }, h("td", {}, r.transport), h("td", {}, `${r.address}${r.prefix ? "*" : ""}`),
+          h("td", { class: "small" }, r.filters?.length ? r.filters.join(", ") : h("span", { class: "mut" }, "none")),
+          h("td", {}, handlerCell(r)), h("td", { class: "mut small" }, r.app ?? "root's or the genesis's"))))));
 }
 
 // ---------------------------------------------------------------- the Inbox
