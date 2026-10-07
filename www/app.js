@@ -9,7 +9,7 @@
 //                            handles (certificates in your wallet), register one on this page's host,
 //                            each one's profile (#104: name and avatar, signed by your wallet); find a
 //                            handle on this page's host (BRC-169 search)
-//   #/s/<identity>           a skein, its Apps tab: finish setup (the image's apps' rows from you),
+//   #/s/<identity>           a skein, its Apps tab: setup (the image's apps' rows from you, sent by the page),
 //                            installed (upgrade, uninstall), add from the catalog or a repository
 //                            (GitHub's versions resolved to a commit), the review; the skeins
 //                            created there (a host skein's)
@@ -52,7 +52,7 @@ const REGISTER = [2, "skein register"];
 const PROFILE = [1, "metanet handles profile"];
 const PROFILE_KEY_ID = "1";
 
-const state = { wallet: undefined, me: "", locators: [], catalog: [], boxes: new Map(), host: undefined, handles: undefined, setup: undefined };
+const state = { wallet: undefined, me: "", locators: [], catalog: [], boxes: new Map(), host: undefined, handles: undefined };
 window.site = state;
 
 // ---------------------------------------------------------------- DOM
@@ -969,12 +969,27 @@ async function readSkein(m, sk) {
     return undefined;
   }
   m.append(mismatch());
+  return { view, apps: await appsIn(sk, view) };
+}
+
+/** The installed apps: each `<name>/app` head whose root is an app record. */
+async function appsIn(sk, view) {
   const apps = [];
   for (const x of view.heads) if (x.name.endsWith("/app")) { const r = await sk.record(x.root); if (r?.kind === "app") apps.push({ head: x, record: r }); }
-  return { view, apps };
+  return apps;
 }
 
 const keyText = (s) => (s instanceof Uint8Array ? toHex(s) : String(s ?? ""));
+
+/** An address book entry's handle as name@domain, from its `handle` and `domain` (an older entry kept the whole of it in `handle`). */
+const handleText = (e) => (!e.handle ? "" : e.domain && !e.handle.includes("@") ? `${e.handle}@${e.domain}` : e.handle);
+
+/** A handle as typed (name@domain, a leading @ dropped) as the address book keeps it: `handle` and `domain` apart. */
+function splitHandle(text) {
+  const t = text.trim().replace(/^@/, "");
+  const at = t.lastIndexOf("@");
+  return at > 0 ? { handle: t.slice(0, at), domain: t.slice(at + 1) } : { handle: t };
+}
 
 /** Who a row's sender is, in plain words: anyone, you, this skein, a provider, a contact, or a key. */
 function senderWords(sender, view) {
@@ -987,7 +1002,7 @@ function senderWords(sender, view) {
   if (k === view.identity) return "this skein";
   const e = view.addressBook.find((x) => x.key === k);
   if (e?.transport === "local") return `the ${e.address} provider`;
-  if (e?.handle) return h("span", {}, `${e.handle}${e.domain ? `@${e.domain}` : ""} `, idView(k, { n: 4, label: "identity key" }));
+  if (e?.handle) return h("span", {}, `${handleText(e)} `, idView(k, { n: 4, label: "identity key" }));
   return h("span", {}, "the key ", idView(k, { label: "identity key" }));
 }
 
@@ -1018,12 +1033,13 @@ function rowLine(r, view, record) {
 }
 
 /**
- * Finish setup: for each installed app, the rows its record asks for from
- * the owner (`$owner`, resolved: the claimed key) that the dispatch table
- * lacks — an image installs its apps before the claim and leaves those out.
- * The rows are the install's own (skein's `wiring`, which planInstall
- * resolves the same record with), compared by the kernel's row key. Only
- * when the connected wallet is the owner.
+ * Setup: for each installed app, the rows its record asks for from the
+ * owner (`$owner`, resolved: the claimed key) that the dispatch table lacks
+ * — an image installs its apps before the claim and leaves those out. The
+ * rows are the install's own (skein's `wiring`, the builder planInstall
+ * resolves the same record with: installing the app again from its tree
+ * sends exactly these), compared by the kernel's row key. Only when the
+ * connected wallet is the owner; nothing when the skein is not claimed.
  */
 function setupGaps(view, apps) {
   if (!view.owner || view.owner !== state.me) return [];
@@ -1032,7 +1048,7 @@ function setupGaps(view, apps) {
   for (const a of apps) {
     let want;
     try { want = wiring(a.record, view); } catch { continue; }
-    const missing = want.filter((w) => keyText(w.row.sender) === view.owner && !have.has(rowKey(w.row)));
+    const missing = want.filter((w) => w.op === "add" && keyText(w.row.sender) === view.owner && !have.has(rowKey(w.row)));
     if (missing.length) out.push({ app: a.record.name, record: a.record, missing });
   }
   return out;
@@ -1040,31 +1056,141 @@ function setupGaps(view, apps) {
 
 const listWords = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 
-/** The Finish setup card: one button reinstalls each app with a gap, one review after another (state.setup, continueSetup). */
-function setupCard(sk, view, gaps) {
-  const names = gaps.map((g) => g.app);
-  const one = names.length === 1;
-  const go = h("button", { type: "button", class: "go", id: "finish-setup", onclick: () => {
-    state.setup = { skein: sk.loc.identity, queue: names.slice() };
-    if (location.hash === `#/s/${sk.loc.identity}`) route(); else location.hash = `#/s/${sk.loc.identity}`;
-  } }, "Finish setup");
-  return h("section", { class: "card setup", id: "setup" },
-    h("div", { class: "eyebrow" }, "FINISH SETUP"),
-    h("h2", { class: "card-h" }, `${listWords(names)} ${one ? "needs" : "need"} your permissions`),
-    h("p", { class: "help" }, `This skein's image installed ${one ? "it" : "them"} before you claimed it, so the rows that let you reach ${one ? "it" : "them"} are not there yet. Installing ${one ? "it" : "each"} again sends only what is missing; you review ${one ? "it" : "each one"} first.`),
-    h("ul", { class: "plain setup-rows" }, gaps.flatMap((g) => g.missing.map((w) => h("li", {}, h("strong", {}, g.app), " ", rowLine(w.row, view, g.record))))),
-    h("div", { class: "actions" }, go));
+/**
+ * The automatic setup (0.8.1): on the owner's first visit to a skein's Apps
+ * tab in a page load, the missing rows are sent by the page itself, one
+ * `dispatch` message each (sendInstall with nothing but the rows: no
+ * objects, no head, no start), then the table read until it shows them.
+ * One run per skein per page load; a failure waits for Try again. What was
+ * added is kept in localStorage (per skein) until its card is dismissed.
+ * setupRuns: identity → {phase: running | done | failed, names, added, error}.
+ */
+const setupRuns = new Map();
+const setupSlots = new Map();
+const setupStoreKey = (id) => `skein-site.setup.${id}`;
+function setupSaved(id) {
+  try { const v = JSON.parse(localStorage.getItem(setupStoreKey(id)) ?? "null"); return v && Array.isArray(v.added) ? v : undefined; } catch { return undefined; }
+}
+function setupSave(id, v) {
+  try { localStorage.setItem(setupStoreKey(id), JSON.stringify(v)); } catch { /* kept for this page load only */ }
 }
 
-/** The next app of a Finish setup in progress on this skein, into the review; done, the setup is cleared. */
-function continueSetup(sk, gaps, run) {
-  const q = state.setup;
-  if (!q || q.skein !== sk.loc.identity) return;
-  while (q.queue.length) {
-    const g = gaps.find((x) => x.app === q.queue.shift());
-    if (g) return run({ name: g.app, version: g.record.version, tree: g.record.tree, setup: true });
+/** A row as the success card says it, kept as plain data (localStorage): where, from whom, to which program, its settings. */
+const setupLine = (r, record) => ({ where: whereWords(r), sender: keyText(r.sender), to: `${roleOf(record, r.program)}${r.fn ? `.${r.fn}` : ""}`, set: settingsText(r) });
+
+/** Start (or, after a failure, start again) the setup of `sk`; `first`: the view and gaps the Apps tab just read. */
+function runSetup(sk, first) {
+  const id = sk.loc.identity;
+  const run = setupRuns.get(id) ?? { added: [] };
+  if (run.phase === "running") return;
+  run.phase = "running";
+  run.error = undefined;
+  if (first) run.names = first.gaps.map((g) => g.app);
+  setupRuns.set(id, run);
+  paintSetup(id);
+  (async () => {
+    let gaps = first?.gaps;
+    if (!gaps) {
+      sk.records.clear();
+      const view = await sk.view();
+      gaps = setupGaps(view, await appsIn(sk, view));
+      if (gaps.length) run.names = gaps.map((g) => g.app);
+    }
+    const send = async (box, body) => await sk.send(box, body);
+    const keys = [];
+    for (const g of gaps) {
+      for (const w of g.missing) {
+        await sendInstall({ app: g.app, records: [], heads: [], rows: [w] }, send);
+        keys.push(rowKey(w.row));
+        let entry = run.added.find((x) => x.app === g.app);
+        if (!entry) run.added.push(entry = { app: g.app, rows: [] });
+        entry.rows.push(setupLine(w.row, g.record));
+      }
+    }
+    if (keys.length) {
+      await until(async () => { sk.records.clear(); const v = await sk.view(); const have = new Set(v.dispatch.map((r) => rowKey(r))); return keys.every((k) => have.has(k)); });
+    }
+  })().then(() => {
+    run.phase = "done";
+    if (run.added.length) setupSave(id, { added: run.added, dismissed: false });
+    paintSetup(id);
+  }, (e) => {
+    run.phase = "failed";
+    run.error = errText(e);
+    paintSetup(id);
+  });
+}
+
+/** The setup's place on the Apps tab: the running card, the failure with Try again, or what was added (until dismissed). */
+function setupSlot(sk) {
+  const id = sk.loc.identity;
+  const el = h("div", { class: "setup-slot", id: "setup-slot" });
+  el.sk = sk;
+  if (!setupSlots.has(id)) setupSlots.set(id, new Set());
+  setupSlots.get(id).add(el);
+  paintSetup(id);
+  return el;
+}
+
+function paintSetup(id) {
+  const slots = setupSlots.get(id);
+  if (!slots) return;
+  for (const el of slots) {
+    if (!el.isConnected && el.dataset.painted) { slots.delete(el); continue; }
+    el.dataset.painted = "1";
+    el.replaceChildren(setupCard(el.sk, setupRuns.get(id)));
   }
-  state.setup = undefined;
+}
+
+function setupCard(sk, run) {
+  const id = sk.loc.identity;
+  const names = listWords(run?.names ?? []);
+  if (run?.phase === "running") {
+    return h("section", { class: "card setup setup-running", id: "setup", role: "status", "aria-live": "polite" },
+      h("div", { class: "waiting" }, h("img", { src: "skein-mark.jpg", alt: "", width: "22", height: "22" }),
+        h("span", { class: "waiting-text" }, `Setting up ${names} for your key `, idView(state.me, { n: 4, label: "identity key" }))),
+      h("p", { class: "small mut" }, "Adding the rows that let you reach them. Your wallet may ask you to sign."));
+  }
+  if (run?.phase === "failed") {
+    return h("section", { class: "card setup setup-failed", id: "setup" },
+      h("div", { class: "eyebrow" }, "SETUP"),
+      h("h2", { class: "card-h" }, `Setting up ${names} did not finish`),
+      h("p", { class: "bad", id: "setup-error" }, run.error),
+      run.added.length ? setupAdded(run.added, "Added so far:") : "",
+      h("div", { class: "actions" }, h("button", { type: "button", class: "go", id: "setup-retry", onclick: () => runSetup(sk) }, "Try again")));
+  }
+  const kept = run?.phase === "done" ? { added: run.added, dismissed: !!run.dismissed || !!setupSaved(id)?.dismissed } : setupSaved(id);
+  if (!kept || kept.dismissed || !kept.added.length) return "";
+  const apps = kept.added.map((x) => x.app);
+  const close = h("button", { type: "button", class: "quiet setup-close", id: "setup-dismiss", "aria-label": "Dismiss", title: "Dismiss" }, "✕");
+  close.onclick = () => {
+    if (run) run.dismissed = true;
+    setupSave(id, { added: kept.added, dismissed: true });
+    paintSetup(id);
+  };
+  return h("section", { class: "card setup setup-done", id: "setup-done" },
+    h("div", { class: "setup-top" }, h("div", { class: "eyebrow ok" }, "SET UP"), close),
+    h("h2", { class: "card-h" }, `${listWords(apps)} ${apps.length === 1 ? "is" : "are"} set up for you`),
+    setupAdded(kept.added, "Added, each a row from you:"));
+}
+
+/** What a setup added, per app, each row in plain words (the key shown, copyable, on the first). */
+function setupAdded(added, lead) {
+  let first = true;
+  const who = (k) => {
+    if (k !== state.me) return h("span", {}, "from ", idView(k, { n: 4, label: "identity key" }));
+    if (!first) return "from you";
+    first = false;
+    return h("span", {}, "from you (", idView(k, { n: 4, label: "identity key" }), ")");
+  };
+  return h("div", { class: "setup-added" },
+    h("p", { class: "small mut" }, lead),
+    added.map((a) => h("div", { class: "setup-app", "data-setup-app": a.app },
+      h("strong", {}, a.app),
+      h("ul", { class: "plain setup-rows" }, a.rows.map((r) => h("li", {}, h("span", { class: "row-line" },
+        h("span", { class: "row-where" }, r.where),
+        h("span", { class: "row-who" }, who(r.sender)),
+        h("span", { class: "row-to mut" }, `→ ${r.to}${r.set ? ` · ${r.set}` : ""}`))))))));
 }
 
 // ---------------------------------------------------------------- the Apps tab
@@ -1181,9 +1307,12 @@ async function appsPage(m, sk) {
   const task = h("div", { class: "task", id: "task" }, ui.wait.el, ui.st, ui.prompt);
   const run = (e) => install(sk, e, ui);
 
-  const gaps = setupGaps(view, apps);
-  if (gaps.length) m.append(setupCard(sk, view, gaps));
-  m.append(task);
+  // Setup: the rows from you the image's apps lack, sent by the page on your first visit (once per page load).
+  if (!setupRuns.has(id)) {
+    const gaps = setupGaps(view, apps);
+    if (gaps.length) runSetup(sk, { view, gaps });
+  }
+  m.append(setupSlot(sk), task);
 
   // Installed: one card per app (a table, its rows laid out as cards: tr[data-app]).
   const sec = h("section", { class: "sec" }, h("h2", { class: "sec-title" }, "Installed"));
@@ -1223,8 +1352,6 @@ async function appsPage(m, sk) {
         ks));
     }
   }
-
-  continueSetup(sk, gaps, run);
 }
 
 /** An installed app's card: name, version, description; Permissions, Upgrade to the catalog's newer version, Uninstall (asks first). */
@@ -1252,10 +1379,8 @@ function appCard(sk, a, run) {
 }
 
 /**
- * Install `e` ({url, hash}, a catalog entry, or {name, tree}: an installed
- * app's own tree, for Finish setup): the git app's clone (or, for the git app
- * itself, the tree the image carries; or the tree this skein holds), then
- * the review. `ui`: the task's wait, status (#install-status) and prompt.
+ * Install `e` ({url, hash}, or a catalog entry): the git app's clone (or,
+ * for the git app itself, the tree the image carries), then the review. `ui`: the task's wait, status (#install-status) and prompt.
  */
 async function install(sk, e, ui) {
   const { st, prompt } = ui;
@@ -1267,11 +1392,7 @@ async function install(sk, e, ui) {
     const view = await sk.view();
     const git = await appRecordIn(view, "git");
     let tree, app;
-    if (e.tree) {
-      // Finish setup: the app installed again from its own tree, which this skein holds: nothing is cloned.
-      step(`Reading ${e.name} from this skein's store…`);
-      tree = e.tree;
-    } else if (!git) {
+    if (!git) {
       if (!e.image) throw new Error("install the git app first");
       const main = view.heads.find((x) => x.name === "main")?.root;
       const leaf = main && await lookup(view.store, main, e.image);
@@ -1280,9 +1401,11 @@ async function install(sk, e, ui) {
       tree = leaf.cid;
     } else {
       if (!/^[0-9a-fA-F]{40}$/.test(e.hash ?? "")) throw new Error("the hash is a commit id: 40 hex digits");
-      // The git app takes the owner's clone only through its row from the owner (Finish setup adds it on an image's skein).
+      // The git app takes the owner's clone only through its row from the owner (the setup adds it on an image's skein).
       if (!view.dispatch.some((r) => r.transport === "mailbox" && (r.address === "git" || r.address === "*") && (r.sender === "*" || keyText(r.sender) === state.me))) {
-        throw new Error("the git app has no row from you yet, so it cannot clone for you: Finish setup first");
+        throw new Error(setupRuns.get(sk.loc.identity)?.phase === "running"
+          ? "the git app has no row from you yet: the page is adding it (setup, above); try again when it is done"
+          : "the git app has no row from you yet, so it cannot clone for you");
       }
       step(`The git app is cloning ${e.url} at ${e.hash.slice(0, 12)}…`);
       ({ tree, app } = await sk.clone(e.url, e.hash));
@@ -1294,7 +1417,7 @@ async function install(sk, e, ui) {
     ui.wait.stop();
     prompt.append(reviewCard(sk, plan, view, e, ui));
     prompt.scrollIntoView?.({ behavior: "smooth", block: "start" });
-  } catch (err) { ui.wait.stop(); state.setup = undefined; status(st, errText(err), "bad"); }
+  } catch (err) { ui.wait.stop(); status(st, errText(err), "bad"); }
 }
 
 /**
@@ -1314,7 +1437,6 @@ function reviewCard(sk, plan, view, e, ui) {
   const fact = (term, ...dd) => [h("dt", {}, term), h("dd", {}, ...dd)];
   const facts = [];
   if (e.url && e.hash) facts.push(...fact("From", h("span", { class: "url-text" }, e.url), " at ", idView(e.hash, { label: "commit id" })));
-  else if (e.tree) facts.push(...fact("From", "its own tree, already in this skein ", idView(String(e.tree), { label: "tree CID" })));
   else if (e.image) facts.push(...fact("From", `this skein's image (${e.image})`));
   if (want.length) {
     facts.push(...fact("Who can reach it", h("ul", { class: "plain review-rows" }, want.map((w) => h("li", {}, rowLine(w.row, view, rec),
@@ -1332,7 +1454,7 @@ function reviewCard(sk, plan, view, e, ui) {
   facts.push(...fact("Sends", `${total} message${total === 1 ? "" : "s"}, each signed by your wallet: ${parts.join(", ")}`, plan.rows.length ? "" : h("span", { class: "mut" }, ". No row to add: nothing is missing.")));
 
   const go = h("button", { type: "button", class: "go", id: "approve" }, "Approve and install");
-  const no = h("button", { type: "button", onclick: () => { state.setup = undefined; ui.prompt.replaceChildren(); } }, "Cancel");
+  const no = h("button", { type: "button", onclick: () => ui.prompt.replaceChildren() }, "Cancel");
   const w = waiter("approve-wait");
   const done = h("div", { class: "status" });
   go.onclick = async () => {
@@ -1350,7 +1472,7 @@ function reviewCard(sk, plan, view, e, ui) {
   return h("section", { class: "card review", id: "review", "aria-label": title },
     h("h2", { class: "card-h" }, title),
     rec.description ? h("p", { class: "help review-desc", title: rec.description }, rec.description) : "",
-    h("p", { class: "small mut" }, `Resolved against this skein. Approving sends these as messages from you${e.setup ? "; only what is missing" : ""}.`),
+    h("p", { class: "small mut" }, `Resolved against this skein. Approving sends these as messages from you.`),
     h("dl", { class: "facts" }, facts),
     h("details", { class: "exact", open: true }, h("summary", {}, "The exact messages"), h("pre", { id: "plan" }, describe(plan).join("\n"))),
     h("div", { class: "actions" }, go, no),
@@ -1641,7 +1763,7 @@ async function contactsPage(m, sk) {
   const people = view.addressBook.filter((e) => e.transport !== "local");
   const services = view.addressBook.filter((e) => e.transport === "local");
   const rowOf = (e) => {
-    const who = e.handle ? `${e.handle}${e.domain ? `@${e.domain}` : ""}` : "";
+    const who = handleText(e);
     const src = { genesis: "from its genesis", admin: "added by the owner", claim: "from the claim" }[e.source] ?? e.source ?? "";
     return h("li", { class: "contact", "data-peer": e.key },
       identicon(e.key, 40, "avatar-md"),
@@ -1667,7 +1789,8 @@ function foundCard(sk, view, f) {
   const add = h("button", { type: "button", class: "go", disabled: !f.messagebox || !!have }, have ? "In your contacts" : "Add");
   add.onclick = async () => {
     add.disabled = true;
-    const row = { op: "add", key: f.key, transport: "mailbox", address: f.messagebox, handle: full };
+    // docs/MESSAGES.md, the address book: {op: "add", key, transport, address, handle?, domain?}: the name and its domain apart.
+    const row = { op: "add", key: f.key, transport: "mailbox", address: f.messagebox, handle: f.name, domain: f.domain };
     try { await sendPeers(sk, { ...row, key: fromHex(row.key) }, f.key, w.say); } catch (e) { w.stop(); status(st, errText(e), "bad"); add.disabled = false; }
   };
   return h("div", { class: "found", "data-found": full },
@@ -1686,16 +1809,18 @@ function foundCard(sk, view, f) {
 function manualAdd(sk) {
   const key = h("input", { type: "text", name: "key", placeholder: "identity key (hex)", "aria-label": "Identity key", autocomplete: "off", spellcheck: "false" });
   const url = h("input", { type: "text", name: "address", placeholder: "its mailbox URL", "aria-label": "Mailbox URL", autocomplete: "off", spellcheck: "false" });
-  const handle = h("input", { type: "text", name: "handle", placeholder: "handle (optional)", "aria-label": "Handle (optional)", autocomplete: "off", spellcheck: "false" });
+  const handle = h("input", { type: "text", name: "handle", placeholder: "name@domain (optional)", "aria-label": "Handle (optional)", autocomplete: "off", spellcheck: "false" });
   const st = h("div", { class: "status" });
   const review = h("div", {});
   const go = h("button", { type: "button" }, "Review");
   go.onclick = () => {
     status(st, "");
     review.replaceChildren();
-    const row = { op: "add", key: key.value.trim(), transport: "mailbox", address: url.value.trim(), ...(handle.value.trim() ? { handle: handle.value.trim() } : {}) };
+    const named = handle.value.trim() ? splitHandle(handle.value) : {};
+    const row = { op: "add", key: key.value.trim(), transport: "mailbox", address: url.value.trim(), ...named };
     if (!isKey(row.key)) return status(st, "the key is 33 bytes in hex", "bad");
     if (!row.address) return status(st, "the mailbox URL is needed", "bad");
+    if (handle.value.trim() && (!named.handle || named.domain === "")) return status(st, "a handle is name@domain", "bad");
     const w = waiter();
     const yes = h("button", { type: "button", class: "go" }, "Send");
     const no = h("button", { type: "button", onclick: () => review.replaceChildren() }, "Cancel");

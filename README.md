@@ -7,7 +7,7 @@ the same everywhere; what makes the page yours is the wallet in your
 browser. A skein from the default image serves nothing until something is
 installed: the host's own skein carries this app, installed by the host's
 owner, and you manage your skeins from there, the page talking to each one
-directly. Version **0.8.0** (shruggr/skein#92; the Inbox, #99; handles,
+directly. Version **0.8.1** (shruggr/skein#92; the Inbox, #99; handles,
 #103; profiles and search, #104; the wallet's grouped request, #97; an app,
 #125; the signed claim, shruggr/skein#127).
 
@@ -43,17 +43,20 @@ directly. Version **0.8.0** (shruggr/skein#92; the Inbox, #99; handles,
   own install plan, `src/host/plan.ts`) and checked against the git app's,
   and the rows and reads it asks for are shown resolved against this skein. On your
   approval the page sends the head (and the reads head, shruggr/skein#135), the dispatch rows and the start, signed
-  by you. **Uninstall**: the stop, then its rows and reads removed. **Finish
-  setup**: on a skein of the default image, the rows from you its apps
-  (chain, git) ask for and the table lacks (the image installs before the
-  claim) are found with skein's `wiring` and added by installing each app
-  again from its own tree. **An app's rows**: listed, removed, or added (a
+  by you. **Uninstall**: the stop, then its rows and reads removed. **Setup**:
+  on a skein of the default image, the rows from you its apps (chain, git)
+  ask for and the table lacks (the image installs before the claim) are
+  found with skein's `wiring` and, when your wallet is the owner, sent by
+  the page itself on your first visit to the Apps tab (once per page load;
+  one `dispatch` message per row, the rows an install again would send),
+  then listed as added until you dismiss it; a failure shows Try again. **An app's rows**: listed, removed, or added (a
   row built as its manifest would write it, resolved by `wiring`, sent as
   one `dispatch` message; an install of the app later sets its rows back to
   its manifest's). **From a repository**: a github.com URL lists its tags
   and its default branch's head (GitHub's public API, unsigned), else the
   commit id is typed. **Contacts** (the address book): a handle resolved at
-  its domain and added, or a key and mailbox URL; removed, each by a `peers`
+  its domain and added (`handle` and `domain` apart, as the address book
+  keeps them), or a key and mailbox URL; removed, each by a `peers`
   message you approve.
 - **Explorer**: the log, threads, a thread, any record (git trees
   browsable), what points at a record (edges), the dispatch table.
@@ -168,7 +171,7 @@ The manifest (description left out):
 {
   "kind": "app",
   "name": "site",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "programs": { "site": "bin/site.wasm" },
   "provides": [{ "interface": "site/1", "functions": { "get": { "writes": false,
     "args": { "method?": "string", "route?": "string", "path?": "string", "query?": "string", "headers?": "map", "match?": "map" },
@@ -192,7 +195,7 @@ From the management page of a skein you own (Install, by URL and commit
 id), or with skein's reference client as the owner:
 
 ```
-skein plan install https://github.com/shruggr/skein-site#<the v0.8.0 commit> --origin <the skein's URL> --out plan
+skein plan install https://github.com/shruggr/skein-site#<the v0.8.1 commit> --origin <the skein's URL> --out plan
 skein send <the skein's URL> plan
 ```
 
@@ -262,6 +265,6 @@ repository pinned in skein's `src/testapps.ts`.
 
 | | |
 |---|---|
-| this app | 0.8.0 (tag `v0.8.0`): a skein's pages redesigned — tabs Apps (the default: Finish setup, the installed apps as cards with Upgrade and Uninstall, Add an app, From a repository with GitHub's versions resolved to a commit, the review read from the plan, the skeins created there), Contacts (add by handle) and Overview; an app's page with its rows (remove one, add one, as skein's `wiring` builds it); the heads under the explorer; every key, CID and commit expandable and copyable; no window.confirm. 0.7.7: the page is a read (`reads[]`, shruggr/skein#135: served by a call, anyone, nothing logged), the owner's root a read (`skein plan reads add`); Save profile posts over your wallet's session (a write: signed); the bundles from skein's two-door plan (an app's reads into the reads head); the catalog pins onboard 0.3.4 and git 0.1.3. 0.7.6: Register posts over your wallet's BRC-104 session with the host's origin — a registration is a write, so a signed request (shruggr/skein#135); the catalog pins onboard 0.3.3. 0.7.5: the catalog pins skein-chain v0.4.0. 0.7.4: the page in the skein brand (0.7.0: header + wallet chip, skein cards, handle/Register card, self-hosted fonts, the mark), the logged-out landing page (0.7.1), quiet without a wallet (0.7.2); manifest and package versions aligned (0.7.3); Create shows the wait (the mark turning, the seconds counting) while the new skein loads the chain. 0.6.3: the catalog pins the current releases (git 0.1.2, shell 0.1.1, chain 0.3.2, overlay 0.7.7, onboard 0.3.2). 0.6.2: the bundles rebuilt on a skein whose address book has no roles (shruggr/skein#126); the address book page has no role column |
+| this app | 0.8.1 (tag `v0.8.1`): setup is automatic — on the owner's first visit the page sends the rows from you the image's apps lack (a status card while it runs, then what was added, dismissible; Try again on a failure); a contact added by handle keeps `handle` and `domain` apart (docs/MESSAGES.md, the address book), an older entry's full handle still shown. 0.8.0: a skein's pages redesigned — tabs Apps (the default: Finish setup, the installed apps as cards with Upgrade and Uninstall, Add an app, From a repository with GitHub's versions resolved to a commit, the review read from the plan, the skeins created there), Contacts (add by handle) and Overview; an app's page with its rows (remove one, add one, as skein's `wiring` builds it); the heads under the explorer; every key, CID and commit expandable and copyable; no window.confirm. 0.7.7: the page is a read (`reads[]`, shruggr/skein#135: served by a call, anyone, nothing logged), the owner's root a read (`skein plan reads add`); Save profile posts over your wallet's session (a write: signed); the bundles from skein's two-door plan (an app's reads into the reads head); the catalog pins onboard 0.3.4 and git 0.1.3. 0.7.6: Register posts over your wallet's BRC-104 session with the host's origin — a registration is a write, so a signed request (shruggr/skein#135); the catalog pins onboard 0.3.3. 0.7.5: the catalog pins skein-chain v0.4.0. 0.7.4: the page in the skein brand (0.7.0: header + wallet chip, skein cards, handle/Register card, self-hosted fonts, the mark), the logged-out landing page (0.7.1), quiet without a wallet (0.7.2); manifest and package versions aligned (0.7.3); Create shows the wait (the mark turning, the seconds counting) while the new skein loads the chain. 0.6.3: the catalog pins the current releases (git 0.1.2, shell 0.1.1, chain 0.3.2, overlay 0.7.7, onboard 0.3.2). 0.6.2: the bundles rebuilt on a skein whose address book has no roles (shruggr/skein#126); the address book page has no role column |
 | skein-sdk | v0.6.0, by tag tarball and hash in `build.zig.zon` (`cbor`, `sk`, `files`; no wallet) |
 | skein | the bundles from `lib/SKEIN_REV`; the app installs into a skein with the #77 manifest shape |

@@ -180,6 +180,18 @@ main>.back{margin-bottom:-4px}
 .setup .eyebrow{color:var(--acc)}
 .setup-rows{margin:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
 .setup-rows li{margin:0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.setup-slot:empty{display:none}
+.card.setup-running{gap:4px;border-color:var(--line)}
+.setup-running .waiting{color:var(--fg2);flex-wrap:wrap}
+.setup-running .waiting-text{min-width:0}
+.card.setup-failed{border-color:var(--bad)}
+.setup-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-8px -8px -8px 0}
+.setup-top .eyebrow.ok{color:var(--ok)}
+.setup-close{min-width:40px;font-size:16px}
+.setup-added{display:flex;flex-direction:column;gap:10px}
+.setup-added>p{margin:0}
+.setup-app{display:flex;flex-direction:column;gap:4px}
+.setup-app>strong{font-weight:600}
 
 /* installed apps: a table whose rows are cards */
 table.app-cards{display:block;margin:0}
