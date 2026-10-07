@@ -175,23 +175,6 @@ main>.back{margin-bottom:-4px}
 .task{display:flex;flex-direction:column;gap:8px}
 .task:has(> #prompt:empty):has(> .waiting[hidden]):has(> .status:empty){display:none}
 
-/* Finish setup */
-.card.setup{display:flex;flex-direction:column;gap:12px;border-color:var(--outline)}
-.setup .eyebrow{color:var(--acc)}
-.setup-rows{margin:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
-.setup-rows li{margin:0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
-.setup-slot:empty{display:none}
-.card.setup-running{gap:4px;border-color:var(--line)}
-.setup-running .waiting{color:var(--fg2);flex-wrap:wrap}
-.setup-running .waiting-text{min-width:0}
-.card.setup-failed{border-color:var(--bad)}
-.setup-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-8px -8px -8px 0}
-.setup-top .eyebrow.ok{color:var(--ok)}
-.setup-close{min-width:40px;font-size:16px}
-.setup-added{display:flex;flex-direction:column;gap:10px}
-.setup-added>p{margin:0}
-.setup-app{display:flex;flex-direction:column;gap:4px}
-.setup-app>strong{font-weight:600}
 
 /* installed apps: a table whose rows are cards */
 table.app-cards{display:block;margin:0}
@@ -259,6 +242,17 @@ button.danger:hover{border-color:var(--bad);background:rgba(242,135,122,.1);colo
 .perm-list>li .row-line{flex:1 1 20em}
 .perm-list>li.missing .row-where{color:var(--fg2)}
 .card>.perm-list{margin-top:6px}
+/* Roles (#143): each role, what it gates, its holders, Grant */
+.role-list{margin:6px 0 0;display:flex;flex-direction:column}
+.role-list>li.role{margin:0;display:flex;flex-direction:column;gap:8px;padding:12px 0;border-top:1px solid var(--line)}
+.role-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px}
+.role-name{font-family:var(--mono);font-weight:600}
+.role-holders{margin:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.role-holder{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.grant-form{flex-wrap:wrap;gap:8px}
+.grant-form select,.grant-form input{min-width:0;flex:1 1 12em}
+.grant-review{flex:1 1 100%}
+#routes th{text-align:left;font-weight:600;color:var(--fg2)}
 .add-row{display:flex;flex-direction:column;gap:12px}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:14px 18px}
 .card section,.card>.help{margin:0}
