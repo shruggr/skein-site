@@ -6,9 +6,9 @@
 // the page is never in the path for another skein's data.
 //
 //   #/                       your skeins (locators in your wallet), add one, create one here; your
-//                            handles (certificates in your wallet), register one on this page's host,
-//                            each one's profile (#104: name and avatar, signed by your wallet); find a
-//                            handle on this page's host (BRC-169 search)
+//                            handles (certificates in your wallet), each one's profile (#104: name and
+//                            avatar, signed by your wallet); find a handle on this page's host (BRC-169
+//                            search). No Register here (shruggr/skein#131): a handle is registered from a skein
 //   #/s/<identity>           a skein, its Apps tab: installed (upgrade, uninstall), add from the
 //                            catalog or a repository (GitHub's versions resolved to a commit), the
 //                            review; the skeins created there (a host skein's)
@@ -16,7 +16,8 @@
 //                            roles (root, user and the app's own), each role's holders from the
 //                            kernel's head `grants`, granted and revoked by root (shruggr/skein#143)
 //   #/s/<identity>/peers     its Contacts (the address book): add by handle, or by key and URL
-//   #/s/<identity>/overview  root, handle, counts, identity
+//   #/s/<identity>/overview  root, handle, counts, identity; for root: Register a handle for this skein
+//                            (shruggr/skein#131: the handle's messagebox is this skein)
 //   #/s/<identity>/log, /threads, /thread/<cid>, /record/<cid>, /edges/<cid>, /routes, /heads
 //                            the explorer: the skein's own reads (/explore, root's)
 //   #/inbox                  the Inbox: a mailbox's box listed (@bsv/message-box-client), and its
@@ -39,7 +40,7 @@ const KEY_ID = "1";
 const GIT_RAW = 0x78;
 /** BRC-169 §4.5: the handle-certificate type. */
 const HANDLE_TYPE = Utils.toBase64(Hash.sha256(Utils.toArray("metanet-handles handle certificate v1", "utf8")));
-/** A registration's signature (the host's POST /account/register): protocol, key ID the name, over `register <name>@<domain>` (the host's domain, lower case). */
+/** A registration's signature (the host's POST /account/register, from a skein: shruggr/skein#131): protocol, key ID the name, over `register <name>@<domain>` (the host's domain, lower case). */
 const REGISTER = [2, "skein register"];
 /**
  * A handle's profile (#104): the OpNS profile record (@1sat/utils
@@ -48,7 +49,7 @@ const REGISTER = [2, "skein register"];
  * protocol, key ID "1", counterparty anyone, over those bytes — anyone with
  * the identity key verifies it. Posted to the host's POST /account/profile
  * {handle, record: <base64 of the bytes>, signature: <hex DER>}; the host's
- * onboarding app keeps it (skein docs/MESSAGES.md "Mailbox instances").
+ * onboarding app keeps it (skein docs/MESSAGES.md "Handles").
  */
 const PROFILE = [1, "metanet handles profile"];
 const PROFILE_KEY_ID = "1";
@@ -666,17 +667,20 @@ function searchSection(m, host) {
 }
 
 /**
- * Register `name` on this page's host for your key: the host's
- * POST /account/register over your wallet's session, with your signature over `register <name>@<domain>`; it
- * creates your mailbox instance and answers with the handle certificate,
- * which your wallet keeps (`acquireCertificate`, direct) unless it holds it.
+ * Register `name` for your key, hosted by the skein `sk` (shruggr/skein#131:
+ * a handle is registered from a skein whose root your key holds, on this
+ * page's host): the host's POST /account/register over your wallet's session,
+ * with your signature over `register <name>@<domain>` and `skein` — the
+ * skein's identity key. The host makes no instance: the handle's messagebox
+ * is that skein's origin. It answers with the handle certificate, which your
+ * wallet keeps (`acquireCertificate`, direct) unless it holds it.
  */
-async function registerHandle(name) {
+async function registerHandle(name, sk) {
   const host = await hostInfo();
   if (!host) throw new Error("this page's skein is not on a skein host");
   const { signature } = await state.wallet.createSignature({ protocolID: REGISTER, keyID: name, counterparty: "anyone", data: Utils.toArray(`register ${name}@${host.domain.toLowerCase()}`, "utf8") });
   // shruggr/skein#135: a registration is a write, so a signed request — over your wallet's BRC-104 session with the host's origin (its host skein).
-  const r = await boxFor(host.origin).af.fetch(`${host.origin}/account/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: name, identityKey: state.me, signature: toHex(signature) }) });
+  const r = await boxFor(host.origin).af.fetch(`${host.origin}/account/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: name, identityKey: state.me, signature: toHex(signature), skein: sk.loc.identity }) });
   let v = {};
   try { v = await r.json(); } catch { /* the status says it */ }
   if (r.status !== 200) throw new Error(v.error ?? `HTTP ${r.status}`);
@@ -851,7 +855,7 @@ async function home(m) {
   await handlesSection(m);
 }
 
-/** Your handle (a certificate in your wallet) with its profile, or Register a handle on this page's host; then Find a handle. */
+/** Your handle (a certificate in your wallet) with its profile; then Find a handle. Registering is a skein's (its Overview). */
 async function handlesSection(m) {
   const host = await hostInfo();
   if (!host) return;
@@ -861,7 +865,10 @@ async function handlesSection(m) {
   try {
     const list = await myHandles();
     if (list.length > 1) title.textContent = "Your handles";
-    at.replaceChildren(...(list.length ? list.map((x) => handleCard(x)) : [h("p", { class: "mut" }, `No handle certificate from ${host.domain} in your wallet.`), registerCard(host)]));
+    at.replaceChildren(...(list.length ? list.map((x) => handleCard(x)) : [
+      h("p", { class: "mut" }, `No handle certificate from ${host.domain} in your wallet.`),
+      h("p", { class: "mut small", id: "register-hint" }, "A handle is registered from a skein: open one whose root your key holds, then Register a handle on its Overview. Its mailbox is that skein."),
+    ]));
   } catch (e) { at.replaceChildren(h("p", { class: "bad" }, `listCertificates: ${errText(e)}`)); }
 
   searchSection(m, host);
@@ -893,24 +900,29 @@ function handleCard(x) {
       panel));
 }
 
-/** Register a handle on this page's host (shown only while your key has none from it). */
-function registerCard(host) {
+/**
+ * Register a handle for the skein `sk` (its Overview, for a key holding root
+ * there; shruggr/skein#131). `mine`: the handle your key holds already, if
+ * any — registering it here moves it to this skein.
+ */
+function registerCard(host, sk, mine) {
   const st = h("div", { class: "status", id: "register-status" });
-  const name = h("input", { type: "text", name: "handle", id: "register-name", placeholder: "a name", autocomplete: "off" });
+  const name = h("input", { type: "text", name: "handle", id: "register-name", placeholder: "a name", autocomplete: "off", ...(mine?.handle ? { value: mine.handle } : {}) });
   return h("form", { class: "card dashed register-card", id: "register", onsubmit: async (e) => {
     e.preventDefault();
     const n = name.value.trim().toLowerCase();
     if (!n) return;
     try {
       status(st, `registering ${n}@${host.domain}`);
-      const v = await registerHandle(n);
-      status(st, `${v.handle}@${v.domain}: the certificate is in your wallet; your mailbox is ${v.messagebox}`, "ok");
+      const v = await registerHandle(n, sk);
+      status(st, `${v.handle}@${v.domain}: the certificate is in your wallet; its mailbox is this skein, ${v.messagebox}`, "ok");
       await sleep(300);
       route();
     } catch (err) { status(st, errText(err), "bad"); }
   } },
-    h("div", { class: "card-title" }, "Register a handle"),
-    h("p", { class: "help" }, `Your wallet signs the request to ${host.origin}. The host creates your mailbox and answers with the handle certificate, which your wallet keeps. One handle per key on a host.`),
+    h("div", { class: "card-title" }, "Register a handle for this skein"),
+    h("p", { class: "help" }, `Your wallet signs the request to ${host.origin}. The host checks that your key holds root here and answers with the handle certificate, which your wallet keeps; the handle's mailbox is this skein. One handle per key on a host.`),
+    mine?.handle ? h("p", { class: "help" }, `Your key holds ${mine.handle}@${mine.domain}${mine.messagebox ? ` (its mailbox ${mine.messagebox})` : ""}: registering it here points it at this skein.`) : "",
     h("label", { for: "register-name", class: "label" }, "Name"),
     h("div", { class: "row" },
       h("span", { class: "suffixed" }, name, h("span", { class: "suffix" }, `@${host.domain}`)),
@@ -1497,9 +1509,10 @@ async function overviewPage(m, sk) {
   const id = sk.loc.identity;
   const mine = isRoot(view);
 
-  // The handle whose mailbox this skein is, if one of yours (state.handles).
-  let handle;
-  try { if (await hostInfo()) handle = (await myHandles()).find((x) => x.messagebox && x.messagebox.replace(/\/+$/, "") === sk.url); } catch { /* not shown */ }
+  // The handle whose mailbox this skein is, if one of yours (state.handles; shruggr/skein#131: a handle's mailbox is the skein it was registered from).
+  let handle, mineAt;
+  const host = await hostInfo();
+  try { if (host) { const list = await myHandles(); handle = list.find((x) => x.messagebox && x.messagebox.replace(/\/+$/, "") === sk.url); mineAt = list.find((x) => x.handle && !x.error); } } catch { /* not shown */ }
   const people = view.addressBook.filter((e) => e.transport !== "local");
   const kids = view.heads.filter((x) => x.name.startsWith("onboard/instances/"));
   const tile = (label, value, sub, extra = {}) => h("div", { class: "card tile", ...extra }, h("span", { class: "tile-label" }, label), h("span", { class: "tile-value" }, value), sub ? h("span", { class: "tile-sub" }, sub) : "");
@@ -1509,6 +1522,8 @@ async function overviewPage(m, sk) {
     tile("Apps", String(apps.length), h("a", { href: `#/s/${id}` }, "Manage apps"), { "data-tile": "apps" }),
     tile("Contacts", String(people.length), h("a", { href: `#/s/${id}/peers` }, "Address book"), { "data-tile": "contacts" }),
     kids.length ? tile("Skeins created here", String(kids.length), h("a", { href: `#/s/${id}` }, "Open the list"), { "data-tile": "children" }) : ""));
+  // Root registers a handle from here (shruggr/skein#131): the host checks the key holds root on this skein.
+  if (mine && host && !handle) m.append(h("section", { class: "sec" }, registerCard(host, sk, mineAt)));
 
   const fact = (term, ...dd) => [h("dt", {}, term), h("dd", {}, ...dd)];
   m.append(h("section", { class: "card identity" },
